@@ -241,12 +241,12 @@ classdef INFGMN < handle
         % evaluated for each INFGMN gaussian component.
         function computeLikelihood(self, x)
             if self.nc > 0
-                [self.loglike, self.mahalaD] = self.logmvnpdf(x, self.means, self.covs);
+                [self.loglike, self.mahalaD] = self.logmvnpdf(x, self.means, self.jdiag(self.covs));
             end
         end
         
         %% Compute the log probability density of a multivariate normal distribution
-        function [loglike, mahalaD] = logmvnpdf(~, x, means, covs)
+        function [loglike, mahalaD] = logmvnpdf(~, x, means, jdiagcovs)
             [n,d] = size(x);
             k = size(means,1);
             loglike = zeros(n, k);
@@ -254,11 +254,11 @@ classdef INFGMN < handle
             logDetCov = zeros(1, k);
 
             for j = 1:k
-                L = sqrt(covs(:,:,j)); % a vector
+                L = sqrt(jdiagcovs(:,:,j)); % a vector
                 if  any(L < eps(max(L)) * d)
                     error('Ill Conditioned Covariance.');
                 end
-                logDetCov(j) = sum(log(covs(:,:,j)));
+                logDetCov(j) = sum(log(jdiagcovs(:,:,j)));
 
                 Xcentered = bsxfun(@minus, x, means(j,:));
                 xRinv = bsxfun(@times, Xcentered , (1 ./ L));
@@ -303,12 +303,12 @@ classdef INFGMN < handle
             self.sp(1,self.nc) = 0;
             self.updatePriors();
             if self.nc > 1
-                self.covs(:,:,self.nc) = mean(self.covs, 3);
+                self.covs(:,:,self.nc) = diag(mean(self.jdiag(self.covs), 3));
             else
-                self.covs(:,:,self.nc) = self.sigma;
+                self.covs(:,:,self.nc) = diag(self.sigma);
             end
             [self.loglike(1,self.nc), self.mahalaD(1, self.nc)] = ...
-                self.logmvnpdf(x, self.means(self.nc,:), self.covs(:,:,self.nc));
+                self.logmvnpdf(x, self.means(self.nc,:), self.jdiag(self.covs(:,:,self.nc)));
         end
 
         %% Update the INFGMN gaussians priors.
@@ -331,11 +331,15 @@ classdef INFGMN < handle
                 deltaMU = w(j) * Xcentered;
                 self.means(j,:) = self.means(j,:) + deltaMU;
                 XcenteredNEW = x - self.means(j,:);
-                self.covs(:,:,j) = self.covs(:,:,j) - deltaMU.^2 + ...
-                    w(j) * (XcenteredNEW.^2 - self.covs(:,:,j)) + self.regValue; 
-                
+                self.covs(:,:,j) = self.covs(:,:,j) - (deltaMU')*(deltaMU) + ...
+                    w(j) * ((XcenteredNEW')*(XcenteredNEW) - self.covs(:,:,j)) + self.regValue; 
+                for d = 1:length(self.varNames)
+                    if self.covs(d,d,j) < 0
+                        self.covs(d,d,j) = 0.0000001;
+                    end
+                end
             end
-            self.covs(self.covs < 0) = 0.0000001;
+%             self.covs(self.covs < 0) = 0.0000001;
             % normalize the priors
             self.updatePriors();
         end
@@ -413,7 +417,7 @@ classdef INFGMN < handle
                     for i = 1:self.nc
                         meanA = self.means(i, ~curIndexes);
                         meanB = self.means(i, curIndexes);
-                        covA = self.covs(1, ~curIndexes, i);
+                        covA = self.jdiag(self.covs(~curIndexes, ~curIndexes, i));
                         xm(i,:) = meanB;
                         ll = self.logmvnpdf(x(j, ~curIndexes), meanA, covA);
                         pajs(i) = exp(ll) * self.priors(i);
@@ -446,7 +450,7 @@ classdef INFGMN < handle
                 for i = 1:self.nc
                     meanA = self.means(i, ~indexes);
                     meanB = self.means(i, indexes);
-                    covA = self.covs(1, ~indexes, i);
+                    covA = self.jdiag(self.covs(~indexes, ~indexes, i));
                     xm(i,:) = meanB;
                     ll = self.logmvnpdf(y(~indexes), meanA, covA);
                     pajs(i) = exp(ll) * self.priors(i);
@@ -494,9 +498,9 @@ classdef INFGMN < handle
         
         function spreads = modelSpreads(self)
             if size(self.covs, 3) > 1
-                spreads = squeeze(self.covs)' .^ self.spread;
+                spreads = squeeze(self.jdiag(self.covs))' .^ self.spread;
             else
-                spreads = squeeze(self.covs) .^ self.spread;
+                spreads = squeeze(self.jdiag(self.covs)) .^ self.spread;
             end
         end
         
@@ -508,6 +512,13 @@ classdef INFGMN < handle
             mfTypes = {self.inMfType, self.outMfType};
         end
 
+        function diagcovs = jdiag(~, covs)
+            diagcovs = zeros(1, size(covs,2), size(covs,3));
+            for j = 1:size(covs,3)
+                diagcovs(:,:,j) = diag(covs(:,:,j))';
+            end
+        end
+        
     end %end methods
     
     methods (Access = private)
@@ -530,9 +541,9 @@ classdef INFGMN < handle
                 range = self.ranges(:, inputIndexes(i));
 %                 mus = self.dilatedMeansForVar(inputIndexes(i)); 
                 mus = self.means(:, inputIndexes(i));
-                spreads = self.covs(:, inputIndexes(i), :) .^ self.spread;
+                spreads = self.jdiag(self.covs(inputIndexes(i),inputIndexes(i),:)) .^ self.spread;
                 self.fis = addvar(self.fis, 'input', ...
-                    self.varNames(inputIndexes(i)), [range(1), range(2)]);
+                    self.varNames{inputIndexes(i)}, [range(1), range(2)]);
                 for j = 1:self.nc
                     mu = mus(j);
                     spd = spreads(j);
@@ -551,9 +562,9 @@ classdef INFGMN < handle
                 range = self.ranges(:, outputIndexes(i));
 %                 mus = self.dilatedMeansForVar(outputIndexes(i));
                 mus = self.means(:, outputIndexes(i)); 
-                spreads = self.covs(:, outputIndexes(i), :)  .^ self.spread;
+                spreads = self.jdiag(self.covs(outputIndexes(i),outputIndexes(i),:)) .^ self.spread;
                 self.fis = addvar(self.fis, 'output', ...
-                    self.varNames(outputIndexes(i)), [range(1), range(2)]);
+                    self.varNames{outputIndexes(i)}, [range(1), range(2)]);
                 for j = 1:self.nc
                     mu = mus(j);
                     spd = spreads(j);
