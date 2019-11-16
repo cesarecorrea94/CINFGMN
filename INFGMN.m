@@ -519,6 +519,26 @@ classdef INFGMN < handle
             end
         end
         
+        function setFisType(self, newFisType)
+            if strcmp(newFisType, 'mamdani')
+                self.outMfType = 'gaussmf';
+                defuzzMethod = 'centroid';
+            elseif strcmp(newFisType, 'sugeno')
+                self.outMfType = 'linear';
+                defuzzMethod = 'wtaver';
+            else
+                throw(MException(['MATLAB:' self.name ':incorrectFisType'], ...
+                    '"newFisType" must be "mamdani" or "sugeno"'));
+            end
+            self.fis = newfis(self.name, newFisType, 'prod', 'max', 'prod', 'sum', defuzzMethod);
+            self.needsFisUpdate = true;
+        end
+        
+        function setSpread(self, newSpread)
+            self.spread = newSpread;
+            self.needsFisUpdate = true;
+        end
+        
     end %end methods
     
     methods (Access = private)
