@@ -560,23 +560,45 @@ classdef INFGMN < handle
             end
             for i = 1:length(outputIndexes)
                 range = self.ranges(:, outputIndexes(i));
-%                 mus = self.dilatedMeansForVar(outputIndexes(i));
-                mus = self.means(:, outputIndexes(i)); 
-                spreads = self.jdiag(self.covs(outputIndexes(i),outputIndexes(i),:)) .^ self.spread;
                 self.fis = addvar(self.fis, 'output', ...
                     self.varNames{outputIndexes(i)}, [range(1), range(2)]);
-                for j = 1:self.nc
-                    mu = mus(j);
-                    spd = spreads(j);
-                    params = self.toMfParams('trimf', mu, spd, self.outMfType);
-                    if self.fis.output(i).range(1) >  params(1)
-                        self.fis.output(i).range(1) = params(1) - 0.3;
-                    else
-                        if self.fis.output(i).range(2) <  params(3)
-                            self.fis.output(i).range(2) = params(3) + 0.3;
+            end
+            if strcmp(self.fis.type, 'mamdani')
+                for i = 1:length(outputIndexes)
+%                     mus = self.dilatedMeansForVar(outputIndexes(i));
+                    mus = self.means(:, outputIndexes(i));
+                    spreads = self.jdiag(self.covs(outputIndexes(i),outputIndexes(i),:)) .^ self.spread;
+                    for j = 1:self.nc
+                        mu = mus(j);
+                        spd = spreads(j);
+                        params = self.toMfParams('trimf', mu, spd, self.outMfType);
+                        if self.fis.output(i).range(1) >  params(1)
+                            self.fis.output(i).range(1) = params(1) - 0.3;
+                        else
+                            if self.fis.output(i).range(2) <  params(3)
+                                self.fis.output(i).range(2) = params(3) + 0.3;
+                            end
                         end
+                        self.addOutputMf(i, mu, spd, ['MF' num2str(j)])
                     end
-                    self.addOutputMf(i, mu, spd, ['MF' num2str(j)])
+                end
+            else % sugeno
+                if ~strcmp(self.outMfType, 'linear')
+                    throw(MException(['MATLAB:' self.name ':errorOnSugenoOutputType'], ...
+                        'outputMF type must be linear (constant type not supported yet)'));
+                end
+                for j = 1:self.nc
+                    muj = self.means(j,:);
+                    invcovj = pinv(sign(self.covs(:,:,j)) ...
+                        .* abs(self.covs(:,:,j)) .^ self.spread);
+                    for i = 1:length(outputIndexes)
+                        o = outputIndexes(i);
+                        CAngular = invcovj(inputIndexes, o) / invcovj(o, o);
+                        CLinear = muj(o) - muj(inputIndexes) * CAngular;
+                        params = [CAngular' CLinear];
+                        self.fis = addmf(self.fis, 'output', i, ...
+                            ['MF' num2str(j)], self.outMfType, params);
+                    end
                 end
             end
         end
@@ -592,9 +614,9 @@ classdef INFGMN < handle
         end
         
         function cleanFis(self)
-            self.fis.input = [];
-            self.fis.output = [];
             self.fis.rule = [];
+            self.fis.output = [];
+            self.fis.input = [];
         end
         
         function addInputMf(self, index, mean, spread, mfName)
