@@ -1,13 +1,13 @@
 
 function dumps = INFGMN_test(DS, maxtime, nepochs, fistypes, spreads, ...
-        betas, deltas, taus, tmaxs, maxStableNC)
+        normalize, deltas, taudists, tmaxs, maxStableNC)
     %% constants
-    combinations = length(betas) * length(deltas) * length(taus) ...
+    combinations = length(deltas) * length(taudists) ...
         * length(tmaxs) * length(maxStableNC);
     equalsteptime = maxtime / combinations;
     %% alocate dumps struct
     dumps = struct( ...
-            'beta', NaN, ...
+            'normalize', NaN, ...
             'delta', NaN, ...
             'tau', NaN, ...
             'tmax', NaN, ...
@@ -24,14 +24,14 @@ function dumps = INFGMN_test(DS, maxtime, nepochs, fistypes, spreads, ...
     dumps_i = 0;
     sumsteptime = 0;
     estimatedmeansteptime = equalsteptime;
-    for beta_i = betas
     for delta_i = deltas
-    for tau_i = taus
+    for tau_d = taudists
+    tau_i = taufordist(tau_d', delta_i, [2*pi 2]);
     for tmax_i = tmaxs
     for maxNC = maxStableNC
         dumps_i = dumps_i + 1;
         params = dumps(dumps_i);
-        params.beta = beta_i;
+        params.normalize = normalize;
         params.delta = delta_i;
         params.tau = tau_i;
         params.tmax = tmax_i;
@@ -42,6 +42,7 @@ function dumps = INFGMN_test(DS, maxtime, nepochs, fistypes, spreads, ...
             throw(MException(['MATLAB:' self.name ':infeasibleCombinations'], ...
                 'Infeasible combinations number for the "maxtime"'));
         end
+%         maxsteptime = sqrt(equalsteptime * maxsteptime);
         params = INFGMN_step(DS, params, nepochs, fistypes, spreads, maxsteptime, maxNC);
         dumps(dumps_i) = params;
         sumsteptime = sumsteptime + params.cputime;
@@ -54,7 +55,6 @@ function dumps = INFGMN_test(DS, maxtime, nepochs, fistypes, spreads, ...
     end
     end
     end
-    end
     fprintf('Elapsed time: %.2f min\n', sumsteptime/60);
 end
 
@@ -63,7 +63,7 @@ function params = INFGMN_step(DS, params, nepochs, fistypes, spreads, maxsteptim
     timeref = cputime;
     %% begin step
     gmm = INFGMN(minmaxDS(DS), 'delta', params.delta, 'tau', params.tau, ...
-        'tmax', params.tmax, 'spmin', params.spmin, 'beta', params.beta );
+        'tmax', params.tmax, 'spmin', params.spmin, 'normalize', params.normalize );
 
     params.stats = struct(...
         'epochs', cell(1, nepochs), ...
@@ -103,8 +103,9 @@ function params = INFGMN_step(DS, params, nepochs, fistypes, spreads, maxsteptim
         params.stats(epoch) = stats;
         params.cputime = cputime - timeref;
         consumedtime = params.cputime / maxsteptime;
-        if epoch * 2^(consumedtime^1 -1) > 2 * sqrt(nepochs) ...
-                && 2^(consumedtime^1 -1) * aging > sqrt(nepochs)
+        regValue = 2^(consumedtime^2 -1);
+        if regValue * epoch > 2 * sqrt(nepochs) ...
+                && regValue * aging > sqrt(nepochs)
             break;
         end
     end
