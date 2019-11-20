@@ -613,7 +613,7 @@ classdef INFGMN < handle
                         .* abs(self.covs(:,:,j)) .^ self.spread);
                     for i = 1:length(outputIndexes)
                         o = outputIndexes(i);
-                        CAngular = invcovj(inputIndexes, o) / invcovj(o, o);
+                        CAngular = -invcovj(inputIndexes, o) / invcovj(o, o);
                         CLinear = muj(o) - muj(inputIndexes) * CAngular;
                         params = [CAngular' CLinear];
                         self.fis = addmf(self.fis, 'output', i, ...
