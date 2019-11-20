@@ -241,30 +241,37 @@ classdef INFGMN < handle
         % evaluated for each INFGMN gaussian component.
         function computeLikelihood(self, x)
             if self.nc > 0
-                [self.loglike, self.mahalaD] = self.logmvnpdf(x, self.means, self.jdiag(self.covs));
+                [self.loglike, self.mahalaD] = self.logmvnpdf(x, self.means, self.covs);
             end
         end
         
         %% Compute the log probability density of a multivariate normal distribution
-        function [loglike, mahalaD] = logmvnpdf(~, x, means, jdiagcovs)
+        function [loglike, mahalaD] = logmvnpdf(self, x, means, covs)
             [n,d] = size(x);
             k = size(means,1);
             loglike = zeros(n, k);
             mahalaD = zeros(n, k);
-            logDetCov = zeros(1, k);
+            logSqrtDetCov = zeros(1, k);
 
             for j = 1:k
-                L = sqrt(jdiagcovs(:,:,j)); % a vector
-                if  any(L < eps(max(L)) * d)
-                    error('Ill Conditioned Covariance.');
+                [L,err] = cholcov(covs(:,:,j), 0);
+                if err ~= 0
+%                     error('stats:mvnpdf:BadCovariance',...
+%                         'Each page of SIGMA must be symmetric and positive definite.');
+                    L = sqrt(self.jdiag(covs(:,:,j))); % a vector
+                    if  any(L < eps(max(L)) * d)
+                        error('Ill Conditioned Covariance.');
+                    end
+                    L = diag(L); % a matrix
                 end
-                logDetCov(j) = sum(log(jdiagcovs(:,:,j)));
+                logSqrtDetCov(j) = sum(log(self.jdiag(L)));
 
                 Xcentered = bsxfun(@minus, x, means(j,:));
-                xRinv = bsxfun(@times, Xcentered , (1 ./ L));
+%                 xRinv = bsxfun(@times, Xcentered , (1 ./ L));
+                xRinv = Xcentered / L;
 
                 mahalaD(:,j) = sum(xRinv.^2, 2);
-                loglike(:,j) = - 0.5 * (mahalaD(:,j) + logDetCov(j) + d * log(2 * pi));
+                loglike(:,j) = - 0.5 * (mahalaD(:,j) + 2*logSqrtDetCov(j) + d * log(2 * pi));
             end
         end
   
@@ -308,7 +315,7 @@ classdef INFGMN < handle
                 self.covs(:,:,self.nc) = diag(self.sigma);
             end
             [self.loglike(1,self.nc), self.mahalaD(1, self.nc)] = ...
-                self.logmvnpdf(x, self.means(self.nc,:), self.jdiag(self.covs(:,:,self.nc)));
+                self.logmvnpdf(x, self.means(self.nc,:), self.covs(:,:,self.nc));
         end
 
         %% Update the INFGMN gaussians priors.
@@ -417,7 +424,7 @@ classdef INFGMN < handle
                     for i = 1:self.nc
                         meanA = self.means(i, ~curIndexes);
                         meanB = self.means(i, curIndexes);
-                        covA = self.jdiag(self.covs(~curIndexes, ~curIndexes, i));
+                        covA = self.covs(~curIndexes, ~curIndexes, i);
                         xm(i,:) = meanB;
                         ll = self.logmvnpdf(x(j, ~curIndexes), meanA, covA);
                         pajs(i) = exp(ll) * self.priors(i);
@@ -450,7 +457,7 @@ classdef INFGMN < handle
                 for i = 1:self.nc
                     meanA = self.means(i, ~indexes);
                     meanB = self.means(i, indexes);
-                    covA = self.jdiag(self.covs(~indexes, ~indexes, i));
+                    covA = self.covs(~indexes, ~indexes, i);
                     xm(i,:) = meanB;
                     ll = self.logmvnpdf(y(~indexes), meanA, covA);
                     pajs(i) = exp(ll) * self.priors(i);
