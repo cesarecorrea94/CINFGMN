@@ -1,6 +1,6 @@
 
 function dumps = INFGMN_test(DS, maxtime, nepochs, fistypes, spreads, ...
-        normalize, deltas, taudists, tmaxs, maxStableNC)
+        normalize, deltas, taudists, tmaxs, maxStableNC, rangelen)
     %% constants
     combinations = length(deltas) * length(taudists) ...
         * length(tmaxs) * length(maxStableNC);
@@ -26,7 +26,7 @@ function dumps = INFGMN_test(DS, maxtime, nepochs, fistypes, spreads, ...
     estimatedmeansteptime = equalsteptime;
     for delta_i = deltas
     for tau_d = taudists
-    tau_i = taufordist(tau_d', delta_i, [2*pi 2]);
+    tau_i = taufordist(tau_d', delta_i, rangelen);
     for tmax_i = tmaxs
     for maxNC = maxStableNC
         dumps_i = dumps_i + 1;
@@ -110,16 +110,4 @@ function params = INFGMN_step(DS, params, nepochs, fistypes, spreads, maxsteptim
         end
     end
     params.stats = params.stats(1:epoch);
-end
-
-function range = minmaxDS(DS)
-    DSmat = dataset2mat(DS);
-    range = array2table(minmax(DSmat')', ...
-        'VariableNames', DS.Properties.VarNames);
-    range = table2dataset(range);
-end
-
-function DSmat = dataset2mat(DS)
-    DScell = dataset2cell(DS);
-    DSmat = cell2mat(DScell(2:end,:));
 end
