@@ -11,8 +11,11 @@ classdef INFGMN < handle
         uniform;
         normalize;
         regValue;
+        
         pimax = 0.8;
         mergeFS;
+        fisvarstruct;
+        lastRenew = 0;
         
         sps = [];
         st = [];
@@ -208,6 +211,9 @@ classdef INFGMN < handle
             
             %% Creates a component at the mean of the estimated ranges of the problem features.
             self.createComponent(mean(self.ranges))
+            if self.mergeFS
+                self.renewMFs();
+            end
         end
         
          %% Train the INFGMN with the data set X
@@ -227,21 +233,45 @@ classdef INFGMN < handle
             N = size(X,1);
             NCs = zeros(1, N); %debug%
             for i = 1:N
+                didCreate = false;
                 x = X(i,:);
                 self.computeLikelihood(x);
                 if (~self.hasAcceptableDistribution())
                     self.createComponent(x);
+                    didCreate = true;
                 end
                 self.computePosterior();
                 self.updateComponents(x);
                 self.sampleSize = self.sampleSize + 1;
                 self.removeSpurious();
+                if self.mergeFS
+                    if  self.sampleSize > self.lastRenew + 20
+                        self.lastRenew = self.sampleSize;
+                        self.renewMFs();
+                    elseif didCreate
+                        self.fitNewComponent();
+                    end
+                end
                 NCs(i) = self.modelSize(); %debug%
             end
             
             % Force fuzzy layer update.
             self.needsFisUpdate = true;
 %             disp(self.nc);
+        end
+        
+        function fitNewComponent(self)
+            for i_vn = 1:length(self.varNames) % para cada feature
+                self.fisvarstruct.(self.varNames{i_vn}).fitNewComponent( ...
+                    [ squeeze(self.covs(i_vn, i_vn, :)) .^ self.spread, self.means(:, i_vn) ] );
+            end
+        end
+        
+        function renewMFs(self)
+            for i_vn = 1:length(self.varNames) % para cada feature
+                self.fisvarstruct.(self.varNames{i_vn}) = INFGMN_FisVar( 0.5, self.vmax, ...
+                    [ squeeze(self.covs(i_vn, i_vn, :)) .^ self.spread, self.means(:, i_vn) ] );
+            end
         end
         
 
@@ -374,7 +404,7 @@ classdef INFGMN < handle
                     w(j) * ((XcenteredNEW')*(XcenteredNEW) - self.covs(:,:,j)) + self.regValue; 
                 for d = 1:length(self.varNames)
                     if self.covs(d,d,j) < 0
-                        self.covs(d,d,j) = 0.0000001;
+                        self.covs(d,d,j) = 1e-7;
                     end
                 end
             end
@@ -398,6 +428,9 @@ classdef INFGMN < handle
                         self.post(i) = [];
                         self.mahalaD(i) = [];
                         self.loglike(i) = [];
+                        if self.mergeFS
+                            self.removeFromMerged(i);
+                        end
                     else
                         self.st(i) = 0;
                         self.sp(i) = 0;
@@ -406,6 +439,12 @@ classdef INFGMN < handle
             end
         end
 
+        function removeFromMerged(self, i_nc)
+            for i_vn = 1:length(self.varNames)
+                self.fisvarstruct.(self.varNames{i_vn}).purge(i_nc);
+            end
+        end
+        
         %% INFGMN recalling algorithm
         function y = recall(self, x)
             validateattributes(x, {'dataset'}, {'nonempty', }, strcat(self.name, ':recall'),'"x"');
@@ -561,6 +600,9 @@ classdef INFGMN < handle
         
         function setMergeFS(self, bool)
             self.mergeFS = bool;
+            if self.mergeFS
+                self.renewMFs();
+            end
         end
         
         function setFisType(self, newFisType)
@@ -605,13 +647,24 @@ classdef INFGMN < handle
             for i = 1:length(inputIndexes)
                 range = self.ranges(:, inputIndexes(i));
 %                 mus = self.dilatedMeansForVar(inputIndexes(i)); 
-                mus = self.means(:, inputIndexes(i));
-                spreads = self.jdiag(self.covs(inputIndexes(i),inputIndexes(i),:)) .^ self.spread;
+                varName = self.varNames{inputIndexes(i)};
+                if  self.mergeFS
+                    till = size(self.fisvarstruct.(varName).mergedMFs, 1);
+                else
+                    till = self.nc;
+                    mus = self.means(:, inputIndexes(i));
+                    spreads = self.jdiag(self.covs(inputIndexes(i),inputIndexes(i),:)) .^ self.spread;
+                end
                 self.fis = addvar(self.fis, 'input', ...
-                    self.varNames{inputIndexes(i)}, [range(1), range(2)]);
-                for j = 1:self.nc
-                    mu = mus(j);
-                    spd = spreads(j);
+                    varName, [range(1), range(2)]);
+                for j = 1:till
+                    if self.mergeFS
+                        spd = self.fisvarstruct.(varName).mergedMFs(j, 1);
+                        mu  = self.fisvarstruct.(varName).mergedMFs(j, 2);
+                    else
+                        mu = mus(j);
+                        spd = spreads(j);
+                    end
                     params = self.toMfParams('trimf', mu, spd, self.inMfType);
                     if self.fis.input(i).range(1) >  params(1)
                         self.fis.input(i).range(1) = params(1) - 0.3;
@@ -654,8 +707,9 @@ classdef INFGMN < handle
                 end
                 for j = 1:self.nc
                     muj = self.means(j,:);
-                    invcovj = pinv(sign(self.covs(:,:,j)) ...
-                        .* abs(self.covs(:,:,j)) .^ self.spread);
+%                     invcovj = pinv(sign(self.covs(:,:,j)) ...
+%                         .* abs(self.covs(:,:,j)) .^ self.spread);
+                    invcovj = pinv( self.covs(:,:,j) );
                     for i = 1:length(outputIndexes)
                         o = outputIndexes(i);
                         CAngular = -invcovj(inputIndexes, o) / invcovj(o, o);
@@ -676,31 +730,37 @@ classdef INFGMN < handle
                 ruleList(i, :) = [(mfsTemplate .* i) self.priors(i) 1];
             end
             if self.mergeFS
-%                 ruleList(:, end-1) = self.priors;
-%                 for fisvar={'Inputs', 'Outputs'}
                 for inp = 1:length(self.fis.Inputs)
-                    [~,index] = sort(self.means(:, inputIndexes(inp)));
-%                     MFParams = vertcat(self.fis.Inputs(inp).MembershipFunctions.Parameters);
-%                     [~,index] = sortrows(MFParams(:,2));
-%                     clear MFParams;
-                    fsMap = 1:length(index);
-                    for MFi = 1:(length(index)-1)
-                        Amf = self.fis.Inputs(inp).MembershipFunctions(index(MFi  )).Parameters;
-                        Bmf = self.fis.Inputs(inp).MembershipFunctions(index(MFi+1)).Parameters;
-                        [sim, v] = self.similarity(Amf, Bmf);
-                        if sim > (1/3)/(2-1/3)
-                            fsMap(fsMap == index(MFi)) = index(MFi+1);
-                            self.fis.Inputs(inp).MembershipFunctions(index(MFi+1)).Parameters ...
-                                = self.merge(Amf, Bmf);
-                        elseif v > self.vmax
-                            [ self.fis.Inputs(inp).MembershipFunctions(index(MFi  )).Parameters ...
-                            , self.fis.Inputs(inp).MembershipFunctions(index(MFi+1)).Parameters ...
-                            ] = self.separate(Amf, Bmf);
-                        end
+                    varName = self.varNames{inputIndexes(inp)};
+                    for i_mf = 1:length(self.fisvarstruct.(varName).mergedIDXs)
+                        ruleList(self.fisvarstruct.(varName).mergedIDXs{i_mf}, inp) = i_mf;
                     end
-                    self.fis.Inputs(inp).MembershipFunctions(setdiff(1:length(index), fsMap)) = [];
-                    ruleList(:, inp) = self.rankify(fsMap);
                 end
+% %                 ruleList(:, end-1) = self.priors;
+% %                 for fisvar={'Inputs', 'Outputs'}
+%                 for inp = 1:length(self.fis.Inputs)
+%                     [~,index] = sort(self.means(:, inputIndexes(inp)));
+% %                     MFParams = vertcat(self.fis.Inputs(inp).MembershipFunctions.Parameters);
+% %                     [~,index] = sortrows(MFParams(:,2));
+% %                     clear MFParams;
+%                     fsMap = 1:length(index);
+%                     for MFi = 1:(length(index)-1)
+%                         Amf = self.fis.Inputs(inp).MembershipFunctions(index(MFi  )).Parameters;
+%                         Bmf = self.fis.Inputs(inp).MembershipFunctions(index(MFi+1)).Parameters;
+%                         [sim, v] = self.similarity(Amf, Bmf);
+%                         if sim > (1/3)/(2-1/3)
+%                             fsMap(fsMap == index(MFi)) = index(MFi+1);
+%                             self.fis.Inputs(inp).MembershipFunctions(index(MFi+1)).Parameters ...
+%                                 = self.merge(Amf, Bmf);
+%                         elseif v > self.vmax
+%                             [ self.fis.Inputs(inp).MembershipFunctions(index(MFi  )).Parameters ...
+%                             , self.fis.Inputs(inp).MembershipFunctions(index(MFi+1)).Parameters ...
+%                             ] = self.separate(Amf, Bmf);
+%                         end
+%                     end
+%                     self.fis.Inputs(inp).MembershipFunctions(setdiff(1:length(index), fsMap)) = [];
+%                     ruleList(:, inp) = self.rankify(fsMap);
+%                 end
             end
             self.fis = addrule(self.fis, ruleList);
         end
@@ -806,42 +866,12 @@ classdef INFGMN < handle
             end
         end
 
-        function v = possibility(~, A, B)
-            v = exp( -( (A(2)-B(2)) / (A(1)+B(1)) )^2 /2 );
-        end
-
-        function [sim, v] = hefny(self, A, B)
-            v = self.possibility(A, B);
-            if v > (1+self.vmax)/2
-                sim = 1;
-            elseif v < 0.6 % sim < 0.2;
-                sim = 0;
-            else
-                spdmin = min(A(1), B(1));
-                betasim = 2 * spdmin / (A(1) + B(1));
-                sqrtlnv = sqrt(-log(v));
-                psi = betasim ...
-                    + (1 - betasim) * erf( (1/(1-betasim)) * sqrtlnv ) ...
-                    - erf( sqrtlnv );
-                sim = psi / (2 - psi);
-            end
-        end
-
 %         function vFilter = hola()
 %             vFilter = exp(-erfinv( (1 - sim2merge)/(1 + sim2merge) )^2);
 %             sqrtlnvFilter = sqrt(-log(vFilter));
 %             betaFilter = 1 - sqrtlnvFilter / erfinv(0.01/(1 - betaFilter));
 %         end
         
-        function newS = merge(~, A, B)
-            aux = sqrt(-2 * log(0.5));
-            minXroot = min(A(2) - A(1) * aux, B(2) - B(1) * aux);
-            maxXroot = max(A(2) + A(1) * aux, B(2) + B(1) * aux);
-            newmu = (minXroot + maxXroot)/2;
-            newsigma = (maxXroot - newmu) / aux;
-            newS = [newsigma, newmu];
-        end
-
         function [newA, newB] = separate(self, A, B)
             if A(2) >= B(2) % assert A < B
                 throw(MException(['MATLAB:' self.name ':wtf'], 'fuuu'));
