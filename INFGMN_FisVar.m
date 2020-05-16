@@ -8,182 +8,155 @@ classdef INFGMN_FisVar < handle
     end
     
     properties
-        Smerge;
-        vmax;
-        mergedIDXs;
-        mergedMFs;
+        Smerge  (1,1) {mustBeReal, mustBePositive, mustBeLessThan(Smerge,1)} = 0.4;
+        vmax    (1,1) {mustBeReal, mustBePositive, mustBeLessThan(vmax,1)} = 0.8;
+        vweightexp  (1,1) {mustBeReal} = 0;
+        mergedIDXs  (:,1) cell = cell(0,1); %{mustBeInteger, mustBePositive};
+        mergedMFs   (:,2) {mustBeReal} = zeros(0,2);
     end
     
     methods
         
-        function self = INFGMN_FisVar(Smerge, vmax, compsMFs)
+        function self = INFGMN_FisVar(Smerge, vmax, compMFs)
             self.Smerge = Smerge;
             self.vmax = vmax;
-            self.renewMFs(compsMFs);
+            vmerge = (1+vmax)/2;
+            self.vweightexp = log(Smerge)/log(vmerge)-1;
+            [~, sortedMu] = sort(compMFs(:, self.I_MU));
+            self.mergedIDXs = num2cell(sortedMu);
+            self.mergedMFs = compMFs(sortedMu, :);
+            self.tryMergeMFs(compMFs, self.calcAlphaSupport(compMFs));
         end
         
         function fitNewComponent(self, compMFs)
-            alphaSupport = self.updateMergedMFs(compMFs);
+            alphaSupport = self.updateAllMergedMFs(compMFs);
             newMF = compMFs(end, :);
             idxNewMF = size(compMFs, 1);
-            if  newMF(self.I_MU) <= self.mergedMFs(1, self.I_MU) % se estiver antes do primeiro MF
-                if self.similarIdx( 1, idxNewMF, compMFs ) >= self.Smerge
-                    self.mergedIDXs{1}(end+1) = idxNewMF;
-                    self.updateMergedMFs_idx(alphaSupport, 1);
-                else
-                    self.mergedIDXs = [ { idxNewMF } self.mergedIDXs ];
-                    self.mergedMFs(2:end+1, :) = self.mergedMFs;
-                    filtro = compMFs(self.mergedIDXs{2}, self.I_MU) <= newMF(self.I_MU);
-                    if any(filtro)
-                        self.mergedIDXs{1} = [ self.mergedIDXs{1} ...
-                            self.mergedIDXs{2}(filtro) ];
-                        self.mergedIDXs{2}(filtro) = [];
-                        self.updateMergedMFs_idx(alphaSupport, 2);
-                    end
-                    self.updateMergedMFs_idx(alphaSupport, 1);
-%                     [~, sortMu] = sort(compMFs( self.mergedIDXs{1}, I_MU ));
-%                     self.mergedIDXs{1} = self.mergedIDXs{1}(sortMu);
-%                     idxSubMF = self.mergedIDXs{2}(1);
-%                     while self.possibility( idxSubMF, self.mergedIDXs(2) ) < ...
-%                             self.possibility( idxSubMF, self.mergedIDXs(1) )
-%                         self.mergedIDXs{2}(1) = [];
-%                         self.mergedIDXs{1}(end+1) = idxSubMF;
-%                         idxSubMF = self.mergedIDXs{2}(1);
-%                     end
+            for i_merged = 1:length(self.mergedIDXs)+1 % para cada MF da feature
+                if i_merged <= length(self.mergedIDXs) && ...
+                        self.mergedMFs(i_merged, self.I_MU) < newMF(self.I_MU)% se estiver antes do MF
+                    continue;
                 end
-            elseif self.mergedMFs(end, self.I_MU) <= newMF(self.I_MU) % se estiver após o último MF
-                if self.similarIdx( size(self.mergedMFs, 1), idxNewMF, compMFs ) >= self.Smerge
-                    self.mergedIDXs{end}(end+1) = idxNewMF;
-                    self.updateMergedMFs_idx(alphaSupport, length(self.mergedIDXs));
-                else
-                    self.mergedIDXs = [ self.mergedIDXs { idxNewMF } ];
-                    self.mergedMFs(end+1, :) = NaN;
-                    filtro = newMF(self.I_MU) <= compMFs(self.mergedIDXs{end-1}, self.I_MU);
-                    if any(filtro)
-                        self.mergedIDXs{end} = [ self.mergedIDXs{end} ...
-                            self.mergedIDXs{end-1}(filtro) ];
-                        self.mergedIDXs{end-1}(filtro) = [];
-                        self.updateMergedMFs_idx(alphaSupport, length(self.mergedIDXs)-1);
-                    end
-                    self.updateMergedMFs_idx(alphaSupport, length(self.mergedIDXs));
-%                     [~, sortMu] = sort(compMFs( self.mergedIDXs{end}, I_MU ));
-%                     self.mergedIDXs{end} = self.mergedIDXs{end}(sortMu);
-%                     idxSubMF = self.mergedIDXs{end-1}(end);
-%                     while self.possibility( idxSubMF, self.mergedIDXs(end-1) ) < ...
-%                             self.possibility( idxSubMF, self.mergedIDXs(end) )
-%                         self.mergedIDXs{end-1}(end) = [];
-%                         self.mergedIDXs{end} = [idxSubMF self.mergedIDXs{end}];
-%                         idxSubMF = self.mergedIDXs{end-1}(end);
-%                     end
-                end
-            else
-                for i_mf = 2:length(self.mergedIDXs) % para cada MF da feature
-                    if  newMF(self.I_MU) < self.mergedMFs(i_mf, self.I_MU) % se estiver antes do MF
-                        pre_sim = self.similarIdx( i_mf-1, idxNewMF, compMFs );
-                        pos_sim = self.similarIdx( i_mf  , idxNewMF, compMFs );
-                        if any([pre_sim, pos_sim] >= self.Smerge)
-                            if pre_sim > pos_sim
-                                self.mergedIDXs{i_mf-1}(end+1) = idxNewMF;
-                                self.updateMergedMFs_idx(alphaSupport, i_mf-1);
-                            else
-                                self.mergedIDXs{i_mf}(end+1) = idxNewMF;
-                                self.updateMergedMFs_idx(alphaSupport, i_mf);
-                            end
+                if i_merged > length(self.mergedIDXs)
+                    idxNewMergedIDX = length(self.mergedIDXs);
+                elseif i_merged == 1
+                    idxNewMergedIDX = 1;
+                elseif newMF(self.I_MU) <= max(compMFs(self.mergedIDXs{i_merged-1}, self.I_MU))
+                    idxNewMergedIDX = i_merged-1;
+                elseif min(compMFs(self.mergedIDXs{i_merged}, self.I_MU)) <= newMF(self.I_MU)
+                    idxNewMergedIDX = i_merged;
+                else % it is between
+                    pre_sim = self.similarIdx(i_merged-1, idxNewMF, compMFs);
+                    pos_sim = self.similarIdx(i_merged, idxNewMF, compMFs);
+                    if any([pre_sim, pos_sim] > self.Smerge)
+                        if pre_sim > pos_sim
+                            idxNewMergedIDX = i_merged-1;
                         else
-                            self.mergedIDXs = [ self.mergedIDXs{1:i_mf-1} ...
-                                { idxNewMF }      self.mergedIDXs{i_mf:end} ];
-                            self.mergedMFs(i_mf+1:end+1, :) = self.mergedMFs(i_mf:end, :);
-                            filtro = newMF(self.I_MU) <= compMFs(self.mergedIDXs{i_mf-1}, self.I_MU);
-                            if any(filtro)
-                                self.mergedIDXs{i_mf} = [ self.mergedIDXs{i_mf} ...
-                                    self.mergedIDXs{i_mf-1}(filtro) ];
-                                self.mergedIDXs{i_mf-1}(filtro) = [];
-                                self.updateMergedMFs_idx(alphaSupport, i_mf-1);
-                            end
-                            filtro = compMFs(self.mergedIDXs{i_mf+1}, self.I_MU) <= newMF(self.I_MU);
-                            if any(filtro)
-                                self.mergedIDXs{i_mf} = [ self.mergedIDXs{i_mf} ...
-                                    self.mergedIDXs{i_mf+1}(filtro) ];
-                                self.mergedIDXs{i_mf+1}(filtro) = [];
-                                self.updateMergedMFs_idx(alphaSupport, i_mf+1);
-                            end
-                            self.updateMergedMFs_idx(alphaSupport, i_mf);
-                            % % %
-%                             [~, sortMu] = sort(compMFs( self.mergedIDXs{i_mf-1}, I_MU ));
-%                             self.mergedIDXs{i_mf-1} = self.mergedIDXs{i_mf-1}(sortMu);
-%                             pre_subMF = self.mergedIDXs{i_mf-1}(end);
-%                             [~, sortMu] = sort(compMFs( self.mergedIDXs{i_mf+1}, I_MU ));
-%                             self.mergedIDXs{i_mf+1} = self.mergedIDXs{i_mf+1}(sortMu);
-%                             pos_subMF = self.mergedIDXs{i_mf+1}(1);
-%                             pre_v = self.possibility( pre_subMF, newMF ) ...
-%                                 / self.possibility( pre_subMF, self.mergedIDXs(i_mf-1) );
-%                             pos_v = self.possibility( pos_subMF, newMF ) ...
-%                                 / self.possibility( pos_subMF, self.mergedIDXs(i_mf+1) );
-%                             while any([pre_v, pos_v] > 1)
-%                                 if pre_v > pos_v
-%                                     self.mergedIDXs{i_mf-1} = setdiff(self.mergedIDXs{i_mf-1}, pre_subMF);
-%                                     self.mergedIDXs{i_mf}(end+1) = pre_subMF;
-%                                     self.mergedMFs(i_mf-1, :) = self.mergeAlphaSupport( alphaSupport( self.mergedIDXs{i_mf-1}, : ) );
-%                                     self.mergedMFs(i_mf, :) = self.mergeAlphaSupport( alphaSupport( self.mergedIDXs{i_mf}, : ) );
-%                                     pre_subMF = self.mergedIDXs{i_mf-1}(end);
-%                                 else
-%                                     self.mergedIDXs{i_mf+1} = setdiff(self.mergedIDXs{i_mf+1}, pos_subMF);
-%                                     self.mergedIDXs{i_mf}(end+1) = pos_subMF;
-%                                     self.mergedMFs(i_mf+1, :) = self.mergeAlphaSupport( alphaSupport( self.mergedIDXs{i_mf+1}, : ) );
-%                                     self.mergedMFs(i_mf, :) = self.mergeAlphaSupport( alphaSupport( self.mergedIDXs{i_mf}, : ) );
-%                                     pos_subMF = self.mergedIDXs{i_mf+1}(1);
-%                                 end
-%                                 pre_v = self.possibility( pre_subMF, newMF ) ...
-%                                     / self.possibility( pre_subMF, self.mergedIDXs(i_mf-1) );
-%                                 pos_v = self.possibility( pos_subMF, newMF ) ...
-%                                     / self.possibility( pos_subMF, self.mergedIDXs(i_mf+1) );
-%                             end
+                            idxNewMergedIDX = i_merged;
                         end
-                        break;
+                    else % merge both to disintegrate soon after
+                        self.mergedIDXs{i_merged-1} = [ ...
+                            self.mergedIDXs{i_merged-1}; ...
+                            self.mergedIDXs{i_merged} ];
+                        self.mergedIDXs(i_merged) = [];
+                        self.mergedMFs(i_merged, :) = [];
+                        idxNewMergedIDX = i_merged-1;
                     end
                 end
+                self.mergedIDXs{idxNewMergedIDX}(end+1,1) = idxNewMF;
+                self.updateIdxMergedMFs(alphaSupport, idxNewMergedIDX);
+                % check if is similar.
+                break;
             end
         end
         
-        function renewMFs(self, compMFs)
-            self.mergedIDXs = num2cell(1:size(compMFs, 1));
-            alphaSupport = self.updateMergedMFs(compMFs);
-            similarities = Inf(length(self.mergedIDXs)-1, 1);
-            for ii = 1:length(similarities) % para cada par de componentes vizinhos
-                similarities(ii) = self.similarIdx([ii, ii+1], [], compMFs);
+        function updateSystem(self, compMFs)
+            self.updateAllMergedMFs(compMFs);
+            disintegrate = false(length(self.mergedIDXs), 1);
+            minAfter = Inf;
+            for i_merged = length(self.mergedIDXs)-1:-1:1
+                minAfter = min(minAfter, min(compMFs(self.mergedIDXs{i_merged+1}, self.I_MU)));
+                if minAfter <= max(compMFs(self.mergedIDXs{i_merged}, self.I_MU))
+                    disintegrate(i_merged) = true;
+                end
             end
-            [sim, idx] = max(similarities);
-            while sim >= self.Smerge
-                self.mergedIDXs{idx} = [self.mergedIDXs{idx} self.mergedIDXs{idx+1}];
-                self.updateMergedMFs_idx(alphaSupport, idx);
-                self.mergedIDXs(idx+1) = [];
-                self.mergedMFs(idx+1, :) = [];
-                similarities(idx) = [];
-                if idx > 1
-                    similarities(idx-1) = self.similarIdx([idx-1, idx], [], compMFs);
+            maxBefore = -Inf;
+            for i_merged = 2:length(self.mergedIDXs)
+                maxBefore = max(maxBefore, max(compMFs(self.mergedIDXs{i_merged-1}, self.I_MU)));
+                if min(compMFs(self.mergedIDXs{i_merged}, self.I_MU)) <= maxBefore
+                    disintegrate(i_merged) = true;
                 end
-                if idx < length(self.mergedIDXs)
-                    similarities(idx) = self.similarIdx([idx, idx+1], [], compMFs);
+            end
+            for i_merged = 1:length(self.mergedIDXs)
+                if ~disintegrate(i_merged) && ...
+                        self.similarIdx( i_merged, [], compMFs ) < self.Smerge
+                    disintegrate(i_merged) = true;
                 end
-                [sim, idx] = max(similarities);
+            end
+            if any(disintegrate)
+                self.mergedIDXs = [self.mergedIDXs(~disintegrate); ...
+                    num2cell(vertcat(self.mergedIDXs{disintegrate})) ];
+                alphaSupport = self.updateAllMergedMFs(compMFs);
+                [~, sortedMu] = sort(self.mergedMFs(:, self.I_MU));
+                self.mergedIDXs = self.mergedIDXs(sortedMu);
+                self.mergedMFs = self.mergedMFs(sortedMu, :);
+                self.tryMergeMFs(compMFs, alphaSupport);
             end
         end
         
         function purge(self, idx)
-            for i_mf = length(self.mergedIDXs):-1:1
-                self.mergedIDXs{i_mf} = setdiff(self.mergedIDXs{i_mf}, idx);
-                if isempty(self.mergedIDXs{i_mf})
-                    self.mergedIDXs(i_mf) = [];
+            for idxMerged = length(self.mergedIDXs):-1:1
+                self.mergedIDXs{idxMerged} = setdiff(self.mergedIDXs{idxMerged}, idx);
+                if isempty(self.mergedIDXs{idxMerged})
+                    self.mergedIDXs(idxMerged) = [];
                 else
-                    filtro = self.mergedIDXs{i_mf} > idx;
-                    self.mergedIDXs{i_mf}(filtro) = ...
-                        self.mergedIDXs{i_mf}(filtro) - 1;
+                    filtro = self.mergedIDXs{idxMerged} > idx;
+                    self.mergedIDXs{idxMerged}(filtro) = ...
+                        self.mergedIDXs{idxMerged}(filtro) - 1;
                 end
             end
         end
         
+    end
+    
+    methods(Access = private)
+        
+        function alphaSupport = updateAllMergedMFs(self, compMFs)
+            alphaSupport = self.calcAlphaSupport(compMFs);
+            self.mergedMFs = zeros(length(self.mergedIDXs), 2);
+            self.updateIdxMergedMFs(alphaSupport, 1:length(self.mergedIDXs));
+        end
+        
+        function updateIdxMergedMFs(self, alphaSupport, idxs)
+            for ii = idxs
+                self.mergedMFs(ii, :) = self.mergeAlphaSupport( alphaSupport( self.mergedIDXs{ii}, : ) );
+            end
+        end
+        
+        function tryMergeMFs(self, compMFs, alphaSupport)
+            similarities = Inf(length(self.mergedIDXs)-1, 1);
+            for ii = 1:length(similarities) % para cada par de componentes vizinhos
+                similarities(ii) = self.similarIdx([ii, ii+1], [], compMFs);
+            end
+            [sim, idxMerged] = max(similarities);
+            while sim >= self.Smerge
+                self.mergedIDXs{idxMerged} = [self.mergedIDXs{idxMerged}; self.mergedIDXs{idxMerged+1}];
+                self.updateIdxMergedMFs(alphaSupport, idxMerged);
+                self.mergedIDXs(idxMerged+1) = [];
+                self.mergedMFs(idxMerged+1, :) = [];
+                similarities(idxMerged) = [];
+                if idxMerged > 1
+                    similarities(idxMerged-1) = self.similarIdx([idxMerged-1, idxMerged], [], compMFs);
+                end
+                if idxMerged < length(self.mergedIDXs)
+                    similarities(idxMerged) = self.similarIdx([idxMerged, idxMerged+1], [], compMFs);
+                end
+                [sim, idxMerged] = max(similarities);
+            end
+        end
+        
         function [sim, v] = similarIdx(self, idxMergeds, idxMFs, compMFs)
-            idxs = [ self.mergedIDXs{idxMergeds} idxMFs ];
+            idxs = [ vertcat(self.mergedIDXs{idxMergeds}); idxMFs(:) ];
             merged = INFGMN_FisVar.mergeAlphaSupport( ...
                 INFGMN_FisVar.calcAlphaSupport( ...
                 [ self.mergedMFs(idxMergeds, :); compMFs(idxMFs, :) ] ));
@@ -193,21 +166,26 @@ classdef INFGMN_FisVar < handle
             [sim, v] = self.similarity( merged, compMFs(idxs(idxMinV), :) );
         end
         
-        function alphaSupport = updateMergedMFs(self, compMFs)
-            alphaSupport = self.calcAlphaSupport(compMFs);
-            self.mergedMFs = zeros(length(self.mergedIDXs), 2);
-            for ii = 1:length(self.mergedIDXs)
-                self.updateMergedMFs_idx(alphaSupport, ii);
+        function [sim, v] = similarity(self, A, B)
+            v = self.possibility(A, B);
+            vWeight = v^self.vweightexp;
+            if vWeight * v >= self.Smerge
+                sim = v;
+            else
+                spdmin = min(A(INFGMN_FisVar.I_SPD), B(INFGMN_FisVar.I_SPD));
+                beta = 2 * spdmin / (A(INFGMN_FisVar.I_SPD) + B(INFGMN_FisVar.I_SPD));
+                sqrtneglnv = sqrt(-log(v));
+                psi = beta ...
+                    + (1 - beta) * erf( (1/(1-beta)) * sqrtneglnv ) ...
+                    - erf( sqrtneglnv );
+                sim = vWeight * v ...
+                    + (1 - vWeight) * (psi / (2 - psi));
             end
-        end
-        
-        function updateMergedMFs_idx(self, alphaSupport, idx)
-            self.mergedMFs(idx, :) = self.mergeAlphaSupport( alphaSupport( self.mergedIDXs{idx}, : ) );
         end
         
     end
     
-    methods(Static)
+    methods(Static, Access = private)
         
         function alphaSupport = calcAlphaSupport(compMFs)
             aux = compMFs(:, INFGMN_FisVar.I_SPD) * INFGMN_FisVar.ALPHA_AUX;
@@ -229,26 +207,6 @@ classdef INFGMN_FisVar < handle
                 -( (A(INFGMN_FisVar.I_MU)  - B(INFGMN_FisVar.I_MU)) ...
                 /  (A(INFGMN_FisVar.I_SPD) + B(INFGMN_FisVar.I_SPD)) ...
                 )^2 /2 );
-        end
-        
-    end
-    methods
-        
-        function [sim, v] = similarity(self, A, B)
-            v = self.possibility(A, B);
-            if v > (1+self.vmax)/2
-                sim = v;
-            elseif v < 0.6 % sim < 0.2;
-                sim = 0;
-            else
-                spdmin = min(A(INFGMN_FisVar.I_SPD), B(INFGMN_FisVar.I_SPD));
-                beta = 2 * spdmin / (A(INFGMN_FisVar.I_SPD) + B(INFGMN_FisVar.I_SPD));
-                sqrtlnv = sqrt(-log(v));
-                psi = beta ...
-                    + (1 - beta) * erf( (1/(1-beta)) * sqrtlnv ) ...
-                    - erf( sqrtlnv );
-                sim = psi / (2 - psi);
-            end
         end
         
     end

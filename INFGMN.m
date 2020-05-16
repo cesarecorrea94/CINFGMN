@@ -245,12 +245,7 @@ classdef INFGMN < handle
                 self.sampleSize = self.sampleSize + 1;
                 self.removeSpurious();
                 if self.mergeFS
-                    if  self.sampleSize > self.lastRenew + 20
-                        self.lastRenew = self.sampleSize;
-                        self.renewMFs();
-                    elseif didCreate
-                        self.fitNewComponent();
-                    end
+                    self.updateFisVar(didCreate);
                 end
                 NCs(i) = self.modelSize(); %debug%
             end
@@ -260,10 +255,13 @@ classdef INFGMN < handle
 %             disp(self.nc);
         end
         
-        function fitNewComponent(self)
+        function updateFisVar(self, didCreate)
             for i_vn = 1:length(self.varNames) % para cada feature
-                self.fisvarstruct.(self.varNames{i_vn}).fitNewComponent( ...
-                    [ squeeze(self.covs(i_vn, i_vn, :)) .^ self.spread, self.means(:, i_vn) ] );
+                compMFs = [ squeeze(self.covs(i_vn, i_vn, :)) .^ self.spread, self.means(:, i_vn) ];
+                if didCreate
+                    self.fisvarstruct.(self.varNames{i_vn}).fitNewComponent( compMFs );
+                end
+                self.fisvarstruct.(self.varNames{i_vn}).updateSystem( compMFs );
             end
         end
         
