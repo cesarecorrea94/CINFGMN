@@ -13,7 +13,8 @@ classdef INFGMN < handle
         regValue;
         
         pimax = 0.8;
-        mergeFS;
+        vmax = 0.75;
+        Smerge = 1;%0.7;
         fisvarstruct;
         lastRenew = 0;
         
@@ -28,7 +29,6 @@ classdef INFGMN < handle
         maxDist;
         minDist;
         needsFisUpdate = true;
-        vmax = 0.75;
         
         % Normalization
         proportion;
@@ -109,7 +109,6 @@ classdef INFGMN < handle
             defaultUniform = false;
             defaultNormalize = true;
             defaultRegValue = 0;
-            defaultMergeFS = false; %%
             
             checkPositiveInterval = @(x, pname) validateattributes(x, {'numeric'}, {'>=', 0,'<=',1, 'scalar'}, self.name, pname);
             checkSigma = @(x) validateattributes(x, {'numeric'}, {'nonempty', 'row', '>', 0}, self.name, '"sigma"');
@@ -127,10 +126,8 @@ classdef INFGMN < handle
             addOptional(parser, 'uniform', defaultUniform, @(x) checkLogical(x, 'uniform'));
             addOptional(parser, 'normalize', defaultNormalize, @(x) checkLogical(x, 'normalize'));
             addOptional(parser, 'FIS_Options', self.defaultFISOptions, checkFISOptions);
-            addOptional(parser, 'mergeFS', defaultMergeFS, @(x) checkLogical(x, 'mergeFS'));
             
             parse(parser, varargin{:});
-            self.mergeFS = parser.Results.mergeFS;
             
             self.normalize = parser.Results.normalize;
             self.sigma = parser.Results.sigma;
@@ -211,7 +208,7 @@ classdef INFGMN < handle
             
             %% Creates a component at the mean of the estimated ranges of the problem features.
             self.createComponent(mean(self.ranges))
-            if self.mergeFS
+            if self.Smerge < 1
                 self.renewMFs();
             end
         end
@@ -244,7 +241,7 @@ classdef INFGMN < handle
                 self.updateComponents(x);
                 self.sampleSize = self.sampleSize + 1;
                 self.removeSpurious();
-                if self.mergeFS
+                if self.Smerge < 1
                     self.updateFisVar(didCreate);
                 end
                 NCs(i) = self.modelSize(); %debug%
@@ -267,7 +264,7 @@ classdef INFGMN < handle
         
         function renewMFs(self)
             for i_vn = 1:length(self.varNames) % para cada feature
-                self.fisvarstruct.(self.varNames{i_vn}) = INFGMN_FisVar( 0.5, self.vmax, ...
+                self.fisvarstruct.(self.varNames{i_vn}) = INFGMN_FisVar( self.Smerge, self.vmax, ...
                     [ squeeze(self.covs(i_vn, i_vn, :)) .^ self.spread, self.means(:, i_vn) ] );
             end
         end
@@ -426,7 +423,7 @@ classdef INFGMN < handle
                         self.post(i) = [];
                         self.mahalaD(i) = [];
                         self.loglike(i) = [];
-                        if self.mergeFS
+                        if self.Smerge < 1
                             self.removeFromMerged(i);
                         end
                     else
@@ -596,11 +593,12 @@ classdef INFGMN < handle
             end
         end
         
-        function setMergeFS(self, bool)
-            self.mergeFS = bool;
-            if self.mergeFS
+        function setSMerge(self, newSmerge)
+            self.Smerge = newSmerge;
+            if self.Smerge < 1
                 self.renewMFs();
             end
+            self.needsFisUpdate = true;
         end
         
         function setFisType(self, newFisType)
@@ -646,7 +644,7 @@ classdef INFGMN < handle
                 range = self.ranges(:, inputIndexes(i));
 %                 mus = self.dilatedMeansForVar(inputIndexes(i)); 
                 varName = self.varNames{inputIndexes(i)};
-                if  self.mergeFS
+                if  self.Smerge < 1
                     till = size(self.fisvarstruct.(varName).mergedMFs, 1);
                 else
                     till = self.nc;
@@ -656,7 +654,7 @@ classdef INFGMN < handle
                 self.fis = addvar(self.fis, 'input', ...
                     varName, [range(1), range(2)]);
                 for j = 1:till
-                    if self.mergeFS
+                    if self.Smerge < 1
                         spd = self.fisvarstruct.(varName).mergedMFs(j, 1);
                         mu  = self.fisvarstruct.(varName).mergedMFs(j, 2);
                     else
@@ -727,7 +725,7 @@ classdef INFGMN < handle
             for i = 1:self.nc  
                 ruleList(i, :) = [(mfsTemplate .* i) self.priors(i) 1];
             end
-            if self.mergeFS
+            if self.Smerge < 1
                 for inp = 1:length(self.fis.Inputs)
                     varName = self.varNames{inputIndexes(inp)};
                     for i_mf = 1:length(self.fisvarstruct.(varName).mergedIDXs)
