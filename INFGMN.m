@@ -245,6 +245,9 @@ classdef INFGMN < handle
                     self.updateFisVar(didCreate);
                 end
                 NCs(i) = self.modelSize(); %debug%
+                if self.modelSize() > 99
+                    error('Too many components. Aborting.');
+                end
             end
             
             % Force fuzzy layer update.
@@ -252,13 +255,10 @@ classdef INFGMN < handle
 %             disp(self.nc);
         end
         
-        function updateFisVar(self, didCreate)
+        function updateFisVar(self, thereIsANewComponent)
             for i_vn = 1:length(self.varNames) % para cada feature
                 compMFs = [ squeeze(self.covs(i_vn, i_vn, :)) .^ self.spread, self.means(:, i_vn) ];
-                if didCreate
-                    self.fisvarstruct.(self.varNames{i_vn}).fitNewComponent( compMFs );
-                end
-                self.fisvarstruct.(self.varNames{i_vn}).updateSystem( compMFs );
+                self.fisvarstruct.(self.varNames{i_vn}).updateSystem( compMFs, thereIsANewComponent );
             end
         end
         
@@ -868,20 +868,6 @@ classdef INFGMN < handle
 %             betaFilter = 1 - sqrtlnvFilter / erfinv(0.01/(1 - betaFilter));
 %         end
         
-        function [newA, newB] = separate(self, A, B)
-            if A(2) >= B(2) % assert A < B
-                throw(MException(['MATLAB:' self.name ':wtf'], 'fuuu'));
-            end
-            vx = (A(1) * B(2) + B(1) * A(2)) / (A(1) + B(1));
-            aux = sqrt(-2 * log(self.vmax));
-            newmuA = ((A(2) - A(1) * aux) + vx) / 2;
-            newmuB = ((B(2) + B(1) * aux) + vx) / 2;
-            newsigmaA = (vx - newmuA) / aux;
-            newsigmaB = (newmuB - vx) / aux;
-            newA = [newsigmaA, newmuA];
-            newB = [newsigmaB, newmuB];
-        end
-
         function rank = rankify(~, array)
             [sorted, index] = sort(array);
             rank = ones(1, length(array));

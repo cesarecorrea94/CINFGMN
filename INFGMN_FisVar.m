@@ -8,10 +8,12 @@ classdef INFGMN_FisVar < handle
     end
     
     properties
+        Saging  (1,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(Saging,1)} = 1;
         Smerge  (1,1) {mustBeReal, mustBePositive, mustBeLessThan(Smerge,1)} = 0.4;
         vmax    (1,1) {mustBeReal, mustBePositive, mustBeLessThan(vmax,1)} = 0.8;
-        vweightexp  (1,1) {mustBeReal} = 0;
+%         vweightexp  (1,1) {mustBeReal} = 0;
         mergedIDXs  (:,1) cell = cell(0,1); %{mustBeInteger, mustBePositive};
+        mergedSim   (:,1) {mustBeReal} = zeros(0,1);
         mergedMFs   (:,2) {mustBeReal} = zeros(0,2);
     end
     
@@ -20,87 +22,87 @@ classdef INFGMN_FisVar < handle
         function self = INFGMN_FisVar(Smerge, vmax, compMFs)
             self.Smerge = Smerge;
             self.vmax = vmax;
-            vmerge = (1+vmax)/2;
-            self.vweightexp = log(Smerge)/log(vmerge)-1;
-            [~, sortedMu] = sort(compMFs(:, self.I_MU));
-            self.mergedIDXs = num2cell(sortedMu);
-            self.mergedMFs = compMFs(sortedMu, :);
-            self.tryMergeMFs(compMFs, self.calcAlphaSupport(compMFs));
+%             vmerge = (1+vmax)/2;
+%             self.vweightexp = log(Smerge)/log(vmerge)-1;
+            components = self.calcAlphaSupport(compMFs);
+            self.renewFoC(components);
         end
         
-        function fitNewComponent(self, compMFs)
-            alphaSupport = self.updateAllMergedMFs(compMFs);
-            newMF = compMFs(end, :);
-            idxNewMF = size(compMFs, 1);
-            for i_merged = 1:length(self.mergedIDXs)+1 % para cada MF da feature
-                if i_merged <= length(self.mergedIDXs) && ...
+        function sim = FoCSim(self)
+            sim = prod(self.mergedSim) ^ (1/ length([ self.mergedIDXs{:} ]) );
+        end
+        
+        function len = FoCSize(self)
+            len = length(self.mergedIDXs);
+        end
+        
+    end
+    
+    methods(Access = private)
+        
+        function fitNewComponent(self, components)
+            newMF = components.MF(end, :);
+            idxNewMF = size(components.MF, 1);
+            for i_merged = 1:self.FoCSize()+1 % para cada MF da feature
+                if i_merged <= self.FoCSize() && ...
                         self.mergedMFs(i_merged, self.I_MU) < newMF(self.I_MU)% se estiver antes do MF
                     continue;
                 end
-                if i_merged > length(self.mergedIDXs)
-                    idxNewMergedIDX = length(self.mergedIDXs);
-                elseif i_merged == 1
-                    idxNewMergedIDX = 1;
-                elseif newMF(self.I_MU) <= max(compMFs(self.mergedIDXs{i_merged-1}, self.I_MU))
-                    idxNewMergedIDX = i_merged-1;
-                elseif min(compMFs(self.mergedIDXs{i_merged}, self.I_MU)) <= newMF(self.I_MU)
+                if i_merged <= self.FoCSize() && ...
+                        min(components.MF(self.mergedIDXs{i_merged}, self.I_MU)) <= newMF(self.I_MU)
                     idxNewMergedIDX = i_merged;
+                    self.mergedIDXs{idxNewMergedIDX}(end+1,1) = idxNewMF;
+                    self.updateIdxMergedMFs(components, idxNewMergedIDX);
+                    self.updateIdxMergedSim(components, idxNewMergedIDX);
+                elseif i_merged > 1 && ...
+                        newMF(self.I_MU) <= max(components.MF(self.mergedIDXs{i_merged-1}, self.I_MU))
+                    idxNewMergedIDX = i_merged-1;
+                    self.mergedIDXs{idxNewMergedIDX}(end+1,1) = idxNewMF;
+                    self.updateIdxMergedMFs(components, idxNewMergedIDX);
+                    self.updateIdxMergedSim(components, idxNewMergedIDX);
                 else % it is between
-                    pre_sim = self.similarIdx(i_merged-1, idxNewMF, compMFs);
-                    pos_sim = self.similarIdx(i_merged, idxNewMF, compMFs);
-                    if any([pre_sim, pos_sim] > self.Smerge)
-                        if pre_sim > pos_sim
-                            idxNewMergedIDX = i_merged-1;
-                        else
-                            idxNewMergedIDX = i_merged;
-                        end
-                    else % merge both to disintegrate soon after
-                        self.mergedIDXs{i_merged-1} = [ ...
-                            self.mergedIDXs{i_merged-1}; ...
-                            self.mergedIDXs{i_merged} ];
-                        self.mergedIDXs(i_merged) = [];
-                        self.mergedMFs(i_merged, :) = [];
-                        idxNewMergedIDX = i_merged-1;
-                    end
+                    self.putNewMergedIDXAt({idxNewMF}, i_merged);
+                    self.tryMergeMFs(components);
                 end
-                self.mergedIDXs{idxNewMergedIDX}(end+1,1) = idxNewMF;
-                self.updateIdxMergedMFs(alphaSupport, idxNewMergedIDX);
-                % check if is similar.
                 break;
             end
         end
         
-        function updateSystem(self, compMFs)
-            self.updateAllMergedMFs(compMFs);
-            disintegrate = false(length(self.mergedIDXs), 1);
+    end
+    
+    methods
+        
+        function updateSystem(self, compMFs, thereIsANewComponent)
+            components = INFGMN_FisVar.calcAlphaSupport(compMFs);
             minAfter = Inf;
             for i_merged = length(self.mergedIDXs)-1:-1:1
-                minAfter = min(minAfter, min(compMFs(self.mergedIDXs{i_merged+1}, self.I_MU)));
-                if minAfter <= max(compMFs(self.mergedIDXs{i_merged}, self.I_MU))
-                    disintegrate(i_merged) = true;
+                minAfter = min(minAfter, min(components.MF(self.mergedIDXs{i_merged+1}, self.I_MU)));
+                if minAfter <= max(components.MF(self.mergedIDXs{i_merged}, self.I_MU))
+                    self.renewFoC(components);
+                    return;
                 end
             end
             maxBefore = -Inf;
             for i_merged = 2:length(self.mergedIDXs)
-                maxBefore = max(maxBefore, max(compMFs(self.mergedIDXs{i_merged-1}, self.I_MU)));
-                if min(compMFs(self.mergedIDXs{i_merged}, self.I_MU)) <= maxBefore
-                    disintegrate(i_merged) = true;
+                maxBefore = max(maxBefore, max(components.MF(self.mergedIDXs{i_merged-1}, self.I_MU)));
+                if min(components.MF(self.mergedIDXs{i_merged}, self.I_MU)) <= maxBefore
+                    self.renewFoC(components);
+                    return;
                 end
             end
-            for i_merged = 1:length(self.mergedIDXs)
-                if ~disintegrate(i_merged) && ...
-                        self.similarIdx( i_merged, [], compMFs ) < self.Smerge
-                    disintegrate(i_merged) = true;
+            self.updateAllMergedMFs(components);
+            self.updateAllMergedSim(components);
+            if thereIsANewComponent
+                if sqrt(self.Saging) * self.FoCSim() < self.Smerge
+                    self.renewFoC(components);
+                    return;
                 end
+                self.fitNewComponent(components);
+                self.Saging = sqrt(self.Saging) * self.FoCSim(); % double-aging
             end
-            if any(disintegrate)
-                self.mergedIDXs = [self.mergedIDXs(~disintegrate); ...
-                    num2cell(vertcat(self.mergedIDXs{disintegrate})) ];
-                alphaSupport = self.updateAllMergedMFs(compMFs);
-                [~, sortedMu] = sort(self.mergedMFs(:, self.I_MU));
-                self.mergedIDXs = self.mergedIDXs(sortedMu);
-                self.mergedMFs = self.mergedMFs(sortedMu, :);
-                self.tryMergeMFs(compMFs, alphaSupport);
+            self.Saging = sqrt(self.Saging) * self.FoCSim();
+            if self.Saging < self.Smerge
+                self.renewFoC(components);
             end
         end
         
@@ -108,7 +110,7 @@ classdef INFGMN_FisVar < handle
             for idxMerged = length(self.mergedIDXs):-1:1
                 self.mergedIDXs{idxMerged} = setdiff(self.mergedIDXs{idxMerged}, idx);
                 if isempty(self.mergedIDXs{idxMerged})
-                    self.mergedIDXs(idxMerged) = [];
+                    self.popMergedPropsAt(idxMerged);
                 else
                     filtro = self.mergedIDXs{idxMerged} > idx;
                     self.mergedIDXs{idxMerged}(filtro) = ...
@@ -121,77 +123,159 @@ classdef INFGMN_FisVar < handle
     
     methods(Access = private)
         
-        function alphaSupport = updateAllMergedMFs(self, compMFs)
-            alphaSupport = self.calcAlphaSupport(compMFs);
+        function renewFoC(self, components)
+            [~, sortedMu] = sort(components.MF(:, self.I_MU));
+            self.mergedIDXs = num2cell(sortedMu);
+            self.updateAllMergedMFs(components);
+            self.updateAllMergedSim(components);
+            self.tryMergeMFs(components);
+            self.Saging = 1;
+        end
+        
+        function putNewMergedIDXAt(self, newMergedIDX, idxNewMergedIDX)
+            self.mergedIDXs = [ self.mergedIDXs(1:idxNewMergedIDX-1); ...
+                newMergedIDX;   self.mergedIDXs(idxNewMergedIDX:end) ];
+            self.mergedMFs(idxNewMergedIDX+1:end+1, :) = self.mergedMFs(idxNewMergedIDX:end, :);
+            self.mergedSim(idxNewMergedIDX+1:end+1, :) = self.mergedSim(idxNewMergedIDX:end, :);
+            self.updateIdxMergedMFs(components, idxNewMergedIDX-1:idxNewMergedIDX+1);
+            self.updateIdxMergedSim(components, idxNewMergedIDX-1:idxNewMergedIDX+1);
+        end
+        
+        function popMergedPropsAt(self, idxMerged)
+            self.mergedIDXs(idxMerged) = [];
+            self.mergedSim(idxMerged) = [];
+            self.mergedMFs(idxMerged,:) = [];
+        end
+        
+        function updateAllMergedSim(self, components)
+            self.mergedSim = zeros(size(self.mergedMFs,1), 1);
+            self.updateIdxMergedSim(components, 1:size(self.mergedMFs,1));
+        end
+        
+        function updateIdxMergedSim(self, components, idxs)
+            for idxMerged = idxs
+                sim = self.similarity( self.mergedMFs(idxMerged,:), ...
+                    components.MF(self.mergedIDXs{idxMerged}, :) );
+                self.mergedSim(idxMerged) = prod(sim);
+            end
+        end
+        
+        function updateAllMergedMFs(self, components)
             self.mergedMFs = zeros(length(self.mergedIDXs), 2);
-            self.updateIdxMergedMFs(alphaSupport, 1:length(self.mergedIDXs));
+            self.updateIdxMergedMFs(components, 1:length(self.mergedIDXs));
         end
         
-        function updateIdxMergedMFs(self, alphaSupport, idxs)
+        function updateIdxMergedMFs(self, components, idxs)
             for ii = idxs
-                self.mergedMFs(ii, :) = self.mergeAlphaSupport( alphaSupport( self.mergedIDXs{ii}, : ) );
+                minXroot = min(components.alphaSupport( self.mergedIDXs{ii}, 1 ));
+                if ii > 1
+                    minXroot = max( minXroot, ...
+                        max(components.MF(self.mergedIDXs{ii-1}, self.I_MU)) );
+                end
+                maxXroot = max(components.alphaSupport( self.mergedIDXs{ii}, 2 ));
+                if ii < length(self.mergedIDXs)
+                    maxXroot = min( maxXroot, ...
+                        min(components.MF(self.mergedIDXs{ii+1}, self.I_MU)) );
+                end
+                self.mergedMFs(ii, :) = self.mergeAlphaSupport( [ minXroot maxXroot ] );
             end
         end
         
-        function tryMergeMFs(self, compMFs, alphaSupport)
-            similarities = Inf(length(self.mergedIDXs)-1, 1);
-            for ii = 1:length(similarities) % para cada par de componentes vizinhos
-                similarities(ii) = self.similarIdx([ii, ii+1], [], compMFs);
+        function tryMergeMFs(self, components)
+            simOnMerge = zeros(length(self.mergedIDXs)-1, 1);
+            for ii = 1:length(simOnMerge) % para cada par de componentes vizinhos
+                simOnMerge(ii) = self.similarIdx([ii, ii+1], components);
             end
-            [sim, idxMerged] = max(similarities);
-            while sim >= self.Smerge
+            simImprov = simOnMerge ./ (self.mergedSim(1:end-1) .* self.mergedSim(2:end));
+            [improv, idxMerged] = max(simImprov);
+            while improv >= 1 || self.FoCSize() > 7
                 self.mergedIDXs{idxMerged} = [self.mergedIDXs{idxMerged}; self.mergedIDXs{idxMerged+1}];
-                self.updateIdxMergedMFs(alphaSupport, idxMerged);
-                self.mergedIDXs(idxMerged+1) = [];
-                self.mergedMFs(idxMerged+1, :) = [];
-                similarities(idxMerged) = [];
+                self.popMergedPropsAt(idxMerged+1);
+                self.updateIdxMergedMFs(components, idxMerged);
+                self.mergedSim(idxMerged) = simOnMerge(idxMerged);
+                simOnMerge(idxMerged) = [];
+                simImprov(idxMerged) = [];
                 if idxMerged > 1
-                    similarities(idxMerged-1) = self.similarIdx([idxMerged-1, idxMerged], [], compMFs);
+                    simOnMerge(idxMerged-1) = self.similarIdx([idxMerged-1, idxMerged], components);
+                    simImprov(idxMerged-1) = simOnMerge(idxMerged-1) ...
+                        / (self.mergedSim(idxMerged-1) * self.mergedSim(idxMerged));
                 end
                 if idxMerged < length(self.mergedIDXs)
-                    similarities(idxMerged) = self.similarIdx([idxMerged, idxMerged+1], [], compMFs);
+                    simOnMerge(idxMerged) = self.similarIdx([idxMerged, idxMerged+1], components);
+                    simImprov(idxMerged) = simOnMerge(idxMerged) ...
+                        / (self.mergedSim(idxMerged) * self.mergedSim(idxMerged+1));
                 end
-                [sim, idxMerged] = max(similarities);
+                [improv, idxMerged] = max(simImprov);
             end
         end
         
-        function [sim, v] = similarIdx(self, idxMergeds, idxMFs, compMFs)
-            idxs = [ vertcat(self.mergedIDXs{idxMergeds}); idxMFs(:) ];
-            merged = INFGMN_FisVar.mergeAlphaSupport( ...
-                INFGMN_FisVar.calcAlphaSupport( ...
-                [ self.mergedMFs(idxMergeds, :); compMFs(idxMFs, :) ] ));
-            sqrtneglnv = abs( merged(INFGMN_FisVar.I_MU)  - compMFs(idxs, INFGMN_FisVar.I_MU) ) ...
-                ./          ( merged(INFGMN_FisVar.I_SPD) + compMFs(idxs, INFGMN_FisVar.I_SPD) );
-            [~, idxMinV] = max(sqrtneglnv);
-            [sim, v] = self.similarity( merged, compMFs(idxs(idxMinV), :) );
+        function [sim, merged] = similarIdx(self, idxMergeds, components)
+            idxs = [ self.mergedIDXs{idxMergeds} ];
+            minXroot = min(components.alphaSupport( idxs, 1 ));
+            if min(idxMergeds) > 1
+                minXroot = max( minXroot, ...
+                    max(components.MF(self.mergedIDXs{min(idxMergeds)-1}, self.I_MU)) );
+            end
+            maxXroot = max(components.alphaSupport( idxs, 2 ));
+            if max(idxMergeds) < length(self.mergedIDXs)
+                maxXroot = min( maxXroot, ...
+                    min(components.MF(self.mergedIDXs{max(idxMergeds)+1}, self.I_MU)) );
+            end
+            merged = INFGMN_FisVar.mergeAlphaSupport( [ minXroot maxXroot ] );
+            sim = self.similarity( merged, components.MF(idxs, :) );
+            sim = prod(sim);
         end
         
-        function [sim, v] = similarity(self, A, B)
-            v = self.possibility(A, B);
-            vWeight = v^self.vweightexp;
-            if vWeight * v >= self.Smerge
-                sim = v;
-            else
-                spdmin = min(A(INFGMN_FisVar.I_SPD), B(INFGMN_FisVar.I_SPD));
-                beta = 2 * spdmin / (A(INFGMN_FisVar.I_SPD) + B(INFGMN_FisVar.I_SPD));
-                sqrtneglnv = sqrt(-log(v));
-                psi = beta ...
-                    + (1 - beta) * erf( (1/(1-beta)) * sqrtneglnv ) ...
-                    - erf( sqrtneglnv );
-                sim = vWeight * v ...
-                    + (1 - vWeight) * (psi / (2 - psi));
-            end
+        function sim = similarity(self, mergedOne, subMFs)
+            mudiff = abs(mergedOne(self.I_MU) - subMFs(:, self.I_MU));
+            aux = [ mergedOne(self.I_SPD) + zeros(size(subMFs, 1), 1), ...
+                subMFs(:, self.I_SPD) ];
+%             aux = [ zeros(size(subMFs, 1), 1) subMFs(:, self.I_SPD) ];
+%             for ii = 1:size(subMFs,1)
+%                 aux(ii, 1) = min( ...
+%                     mergedOne(self.I_SPD), ...
+%                     A(self.I_MU) - A(self.I_SPD) * self.ALPHA_AUX ...
+%                     );
+%             end
+            spdmin = min( aux, [], 2 );
+            spdmax = max( aux, [], 2 );
+            spddiff = spdmax - spdmin;
+            spdsum  = spdmax + spdmin;
+            sqrtneglnw = mudiff ./ spddiff;
+            sqrtneglnv = mudiff ./ spdsum; % v = possibility
+            ohm = spddiff .* erf(sqrtneglnw) ...
+                - spdsum  .* erf(sqrtneglnv);
+            sim  = (2 * spdmin + ohm) ...
+                ./ (2 * spdmax - ohm);
         end
+        
+%         function [sim, v] = similarity(self, A, B)
+%             v = self.possibility(A, B);
+%             vWeight = v^self.vweightexp;
+%             if vWeight * v >= self.Smerge
+%                 sim = v;
+%             else
+%                 spdmin = min(A(self.I_SPD), B(self.I_SPD));
+%                 beta = 2 * spdmin / (A(self.I_SPD) + B(self.I_SPD));
+%                 sqrtneglnv = sqrt(-log(v));
+%                 psi = beta ...
+%                     + (1 - beta) * erf( (1/(1-beta)) * sqrtneglnv ) ...
+%                     - erf( sqrtneglnv );
+%                 sim = vWeight * v ...
+%                     + (1 - vWeight) * (psi / (2 - psi));
+%             end
+%         end
         
     end
     
     methods(Static, Access = private)
         
-        function alphaSupport = calcAlphaSupport(compMFs)
-            aux = compMFs(:, INFGMN_FisVar.I_SPD) * INFGMN_FisVar.ALPHA_AUX;
-            alphaSupport = [ ...
-                ( compMFs(:, INFGMN_FisVar.I_MU) - aux ), ...
-                ( compMFs(:, INFGMN_FisVar.I_MU) + aux ) ];
+        function components = calcAlphaSupport(compMFs)
+            components.MF = compMFs;
+            aux = components.MF(:, INFGMN_FisVar.I_SPD) * INFGMN_FisVar.ALPHA_AUX;
+            components.alphaSupport = [ ... 
+                ( components.MF(:, INFGMN_FisVar.I_MU) - aux ), ...
+                ( components.MF(:, INFGMN_FisVar.I_MU) + aux ) ];
         end
         
         function merged = mergeAlphaSupport(alphaSupports)
@@ -202,12 +286,12 @@ classdef INFGMN_FisVar < handle
             merged = [newSigma, newMu];
         end
         
-        function v = possibility(A, B)
-            v = exp( ...
-                -( (A(INFGMN_FisVar.I_MU)  - B(INFGMN_FisVar.I_MU)) ...
-                /  (A(INFGMN_FisVar.I_SPD) + B(INFGMN_FisVar.I_SPD)) ...
-                )^2 /2 );
-        end
+%         function v = possibility(A, B)
+%             v = exp( ...
+%                 -( (A(INFGMN_FisVar.I_MU)  - B(INFGMN_FisVar.I_MU)) ...
+%                 /  (A(INFGMN_FisVar.I_SPD) + B(INFGMN_FisVar.I_SPD)) ...
+%                 )^2 /2 );
+%         end
         
     end
 end
