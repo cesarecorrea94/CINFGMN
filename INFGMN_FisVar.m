@@ -39,38 +39,6 @@ classdef INFGMN_FisVar < handle
         
     end
     
-    methods(Access = private)
-        
-        function fitNewComponent(self, components)
-            newMF = components.MF(end, :);
-            idxNewMF = size(components.MF, 1);
-            for i_merged = 1:self.FoCSize()+1 % para cada MF da feature
-                if i_merged <= self.FoCSize() && ...
-                        self.mergedMFs(i_merged, self.I_MU) < newMF(self.I_MU)% se estiver antes do MF
-                    continue;
-                end
-                if i_merged <= self.FoCSize() && ...
-                        min(components.MF(self.mergedIDXs{i_merged}, self.I_MU)) <= newMF(self.I_MU)
-                    idxNewMergedIDX = i_merged;
-                    self.mergedIDXs{idxNewMergedIDX}(end+1,1) = idxNewMF;
-                    self.updateIdxMergedMFs(components, idxNewMergedIDX);
-                    self.updateIdxMergedSim(components, idxNewMergedIDX);
-                elseif i_merged > 1 && ...
-                        newMF(self.I_MU) <= max(components.MF(self.mergedIDXs{i_merged-1}, self.I_MU))
-                    idxNewMergedIDX = i_merged-1;
-                    self.mergedIDXs{idxNewMergedIDX}(end+1,1) = idxNewMF;
-                    self.updateIdxMergedMFs(components, idxNewMergedIDX);
-                    self.updateIdxMergedSim(components, idxNewMergedIDX);
-                else % it is between
-                    self.putNewMergedIDXAt({idxNewMF}, i_merged, components);
-                    self.tryMergeMFs(components);
-                end
-                break;
-            end
-        end
-        
-    end
-    
     methods
         
         function updateSystem(self, compMFs, thereIsANewComponent)
@@ -124,62 +92,31 @@ classdef INFGMN_FisVar < handle
     
     methods(Access = private)
         
-        function renewFoC(self, components)
-            [~, sortedMu] = sort(components.MF(:, self.I_MU));
-            self.mergedIDXs = num2cell(sortedMu);
-            self.updateAllMergedMFs(components);
-            self.updateAllMergedSim(components);
-            self.tryMergeMFs(components);
-            self.Saging = 1;
-        end
-        
-        function putNewMergedIDXAt(self, newMergedIDX, idxNewMergedIDX, components)
-            self.mergedIDXs = [ self.mergedIDXs(1:idxNewMergedIDX-1); ...
-                newMergedIDX;   self.mergedIDXs(idxNewMergedIDX:end) ];
-            self.mergedMFs(idxNewMergedIDX+1:end+1, :) = self.mergedMFs(idxNewMergedIDX:end, :);
-            self.mergedSim(idxNewMergedIDX+1:end+1, :) = self.mergedSim(idxNewMergedIDX:end, :);
-            adjIdxNewMergedIDX = max(idxNewMergedIDX-1, 1):min(self.FoCSize(), idxNewMergedIDX+1);
-            self.updateIdxMergedMFs(components, adjIdxNewMergedIDX);
-            self.updateIdxMergedSim(components, adjIdxNewMergedIDX);
-        end
-        
-        function popMergedPropsAt(self, idxMerged)
-            self.mergedIDXs(idxMerged) = [];
-            self.mergedSim(idxMerged) = [];
-            self.mergedMFs(idxMerged,:) = [];
-        end
-        
-        function updateAllMergedSim(self, components)
-            self.mergedSim = zeros(size(self.mergedMFs,1), 1);
-            self.updateIdxMergedSim(components, 1:size(self.mergedMFs,1));
-        end
-        
-        function updateIdxMergedSim(self, components, idxs)
-            for idxMerged = idxs
-                sim = self.similarity( self.mergedMFs(idxMerged,:), ...
-                    components.MF(self.mergedIDXs{idxMerged}, :) );
-                self.mergedSim(idxMerged) = prod(sim);
-            end
-        end
-        
-        function updateAllMergedMFs(self, components)
-            self.mergedMFs = zeros(length(self.mergedIDXs), 2);
-            self.updateIdxMergedMFs(components, 1:length(self.mergedIDXs));
-        end
-        
-        function updateIdxMergedMFs(self, components, idxs)
-            for ii = idxs
-                minXroot = min(components.alphaSupport( self.mergedIDXs{ii}, 1 ));
-                if ii > 1
-                    minXroot = max( minXroot, ...
-                        max(components.MF(self.mergedIDXs{ii-1}, self.I_MU)) );
+        function fitNewComponent(self, components)
+            newMF = components.MF(end, :);
+            idxNewMF = size(components.MF, 1);
+            for i_merged = 1:self.FoCSize()+1 % para cada MF da feature
+                if i_merged <= self.FoCSize() && ...
+                        self.mergedMFs(i_merged, self.I_MU) < newMF(self.I_MU)% se estiver antes do MF
+                    continue;
                 end
-                maxXroot = max(components.alphaSupport( self.mergedIDXs{ii}, 2 ));
-                if ii < length(self.mergedIDXs)
-                    maxXroot = min( maxXroot, ...
-                        min(components.MF(self.mergedIDXs{ii+1}, self.I_MU)) );
+                if i_merged <= self.FoCSize() && ...
+                        min(components.MF(self.mergedIDXs{i_merged}, self.I_MU)) <= newMF(self.I_MU)
+                    idxNewMergedIDX = i_merged;
+                    self.mergedIDXs{idxNewMergedIDX}(end+1,1) = idxNewMF;
+                    self.updateIdxMergedMFs(components, idxNewMergedIDX);
+                    self.updateIdxMergedSim(components, idxNewMergedIDX);
+                elseif i_merged > 1 && ...
+                        newMF(self.I_MU) <= max(components.MF(self.mergedIDXs{i_merged-1}, self.I_MU))
+                    idxNewMergedIDX = i_merged-1;
+                    self.mergedIDXs{idxNewMergedIDX}(end+1,1) = idxNewMF;
+                    self.updateIdxMergedMFs(components, idxNewMergedIDX);
+                    self.updateIdxMergedSim(components, idxNewMergedIDX);
+                else % it is between
+                    self.putNewMergedIDXAt({idxNewMF}, i_merged, components);
+                    self.tryMergeMFs(components);
                 end
-                self.mergedMFs(ii, :) = self.mergeAlphaSupport( [ minXroot maxXroot ] );
+                break;
             end
         end
         
@@ -216,6 +153,65 @@ classdef INFGMN_FisVar < handle
             end
         end
         
+        function renewFoC(self, components)
+            [~, sortedMu] = sort(components.MF(:, self.I_MU));
+            self.mergedIDXs = num2cell(sortedMu);
+            self.updateAllMergedMFs(components);
+            self.updateAllMergedSim(components);
+            self.tryMergeMFs(components);
+            self.Saging = 1;
+        end
+        
+        function putNewMergedIDXAt(self, newMergedIDX, idxNewMergedIDX, components)
+            self.mergedIDXs = [ self.mergedIDXs(1:idxNewMergedIDX-1); ...
+                newMergedIDX;   self.mergedIDXs(idxNewMergedIDX:end) ];
+            self.mergedMFs(idxNewMergedIDX+1:end+1, :) = self.mergedMFs(idxNewMergedIDX:end, :);
+            self.mergedSim(idxNewMergedIDX+1:end+1, :) = self.mergedSim(idxNewMergedIDX:end, :);
+            adjIdxNewMergedIDX = max(idxNewMergedIDX-1, 1):min(self.FoCSize(), idxNewMergedIDX+1);
+            self.updateIdxMergedMFs(components, adjIdxNewMergedIDX);
+            self.updateIdxMergedSim(components, adjIdxNewMergedIDX);
+        end
+        
+        function popMergedPropsAt(self, idxMerged)
+            self.mergedIDXs(idxMerged) = [];
+            self.mergedSim(idxMerged) = [];
+            self.mergedMFs(idxMerged,:) = [];
+        end
+        
+        function updateAllMergedSim(self, components)
+            self.mergedSim = zeros(size(self.mergedMFs,1), 1);
+            self.updateIdxMergedSim(components, 1:size(self.mergedMFs,1));
+        end
+        
+        function updateIdxMergedSim(self, components, idxMergeds)
+            for idx = idxMergeds
+                sim = self.similarity( self.mergedMFs(idx,:), ...
+                    components.MF(self.mergedIDXs{idx}, :) );
+                self.mergedSim(idx) = prod(sim);
+            end
+        end
+        
+        function updateAllMergedMFs(self, components)
+            self.mergedMFs = zeros(length(self.mergedIDXs), 2);
+            self.updateIdxMergedMFs(components, 1:length(self.mergedIDXs));
+        end
+        
+        function updateIdxMergedMFs(self, components, idxMergeds)
+            for idx = idxMergeds
+                minXroot = min(components.alphaSupport( self.mergedIDXs{idx}, 1 ));
+                if idx > 1
+                    minXroot = max( minXroot, ...
+                        max(components.MF(self.mergedIDXs{idx-1}, self.I_MU)) );
+                end
+                maxXroot = max(components.alphaSupport( self.mergedIDXs{idx}, 2 ));
+                if idx < length(self.mergedIDXs)
+                    maxXroot = min( maxXroot, ...
+                        min(components.MF(self.mergedIDXs{idx+1}, self.I_MU)) );
+                end
+                self.mergedMFs(idx, :) = self.mergeAlphaSupport( [ minXroot maxXroot ] );
+            end
+        end
+        
         function [sim, merged] = similarIdx(self, idxMergeds, components)
             idxs = vertcat(self.mergedIDXs{idxMergeds});
             minXroot = min(components.alphaSupport( idxs, 1 ));
@@ -235,17 +231,17 @@ classdef INFGMN_FisVar < handle
         
         function sim = similarity(self, mergedOne, subMFs)
             mudiff = abs(mergedOne(self.I_MU) - subMFs(:, self.I_MU));
-            aux = [ mergedOne(self.I_SPD) + zeros(size(subMFs, 1), 1), ...
+            spdaux = [ mergedOne(self.I_SPD) + zeros(size(subMFs, 1), 1), ...
                 subMFs(:, self.I_SPD) ];
-%             aux = [ zeros(size(subMFs, 1), 1) subMFs(:, self.I_SPD) ];
+%             spdaux = [ zeros(size(subMFs, 1), 1) subMFs(:, self.I_SPD) ];
 %             for ii = 1:size(subMFs,1)
-%                 aux(ii, 1) = min( ...
+%                 spdaux(ii, 1) = min( ...
 %                     mergedOne(self.I_SPD), ...
 %                     A(self.I_MU) - A(self.I_SPD) * self.ALPHA_AUX ...
 %                     );
 %             end
-            spdmin = min( aux, [], 2 );
-            spdmax = max( aux, [], 2 );
+            spdmin = min( spdaux, [], 2 );
+            spdmax = max( spdaux, [], 2 );
             spddiff = spdmax - spdmin;
             spdsum  = spdmax + spdmin;
             sqrtneglnw = mudiff ./ spddiff;
