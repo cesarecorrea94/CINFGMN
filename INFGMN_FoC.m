@@ -1,8 +1,8 @@
-classdef INFGMN_FisVar < handle
+classdef INFGMN_FoC < handle
     
     properties(Constant)
         ALPHA = 0.5;
-        ALPHA_AUX = sqrt(-2 * log(INFGMN_FisVar.ALPHA));
+        ALPHA_AUX = sqrt(-2 * log(INFGMN_FoC.ALPHA));
         I_SPD = 1;
         I_MU = 2;
     end
@@ -20,7 +20,7 @@ classdef INFGMN_FisVar < handle
     
     methods
         
-        function self = INFGMN_FisVar(Smerge, vmax, compMFs)
+        function self = INFGMN_FoC(Smerge, vmax, compMFs)
             self.Smerge = Smerge;
             self.vmax = vmax;
 %             vmerge = (1+vmax)/2;
@@ -42,7 +42,7 @@ classdef INFGMN_FisVar < handle
     methods
         
         function updateSystem(self, compMFs, thereIsANewComponent)
-            components = INFGMN_FisVar.calcAlphaSupport(compMFs);
+            components = INFGMN_FoC.calcAlphaSupport(compMFs);
             minAfter = Inf;
             for i_merged = length(self.mergedIDXs)-1:-1:1
                 minAfter = min(minAfter, min(components.MF(self.mergedIDXs{i_merged+1}, self.I_MU)));
@@ -224,7 +224,7 @@ classdef INFGMN_FisVar < handle
                 maxXroot = min( maxXroot, ...
                     min(components.MF(self.mergedIDXs{max(idxMergeds)+1}, self.I_MU)) );
             end
-            merged = INFGMN_FisVar.mergeAlphaSupport( [ minXroot maxXroot ] );
+            merged = INFGMN_FoC.mergeAlphaSupport( [ minXroot maxXroot ] );
             sim = self.similarity( merged, components.MF(idxs, :) );
             sim = prod(sim);
         end
@@ -276,24 +276,24 @@ classdef INFGMN_FisVar < handle
         
         function components = calcAlphaSupport(compMFs)
             components.MF = compMFs;
-            aux = components.MF(:, INFGMN_FisVar.I_SPD) * INFGMN_FisVar.ALPHA_AUX;
+            aux = components.MF(:, INFGMN_FoC.I_SPD) * INFGMN_FoC.ALPHA_AUX;
             components.alphaSupport = [ ... 
-                ( components.MF(:, INFGMN_FisVar.I_MU) - aux ), ...
-                ( components.MF(:, INFGMN_FisVar.I_MU) + aux ) ];
+                ( components.MF(:, INFGMN_FoC.I_MU) - aux ), ...
+                ( components.MF(:, INFGMN_FoC.I_MU) + aux ) ];
         end
         
         function merged = mergeAlphaSupport(alphaSupports)
             minXroot = min(alphaSupports(:, 1));
             maxXroot = max(alphaSupports(:, 2));
             newMu = (minXroot + maxXroot) / 2;
-            newSigma = (maxXroot - newMu) / INFGMN_FisVar.ALPHA_AUX;
+            newSigma = (maxXroot - newMu) / INFGMN_FoC.ALPHA_AUX;
             merged = [newSigma, newMu];
         end
         
 %         function v = possibility(A, B)
 %             v = exp( ...
-%                 -( (A(INFGMN_FisVar.I_MU)  - B(INFGMN_FisVar.I_MU)) ...
-%                 /  (A(INFGMN_FisVar.I_SPD) + B(INFGMN_FisVar.I_SPD)) ...
+%                 -( (A(INFGMN_FoC.I_MU)  - B(INFGMN_FoC.I_MU)) ...
+%                 /  (A(INFGMN_FoC.I_SPD) + B(INFGMN_FoC.I_SPD)) ...
 %                 )^2 /2 );
 %         end
         
