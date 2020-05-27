@@ -11,9 +11,10 @@ classdef INFGMN_FisVar < handle
         Saging  (1,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(Saging,1)} = 1;
         Smerge  (1,1) {mustBeReal, mustBePositive, mustBeLessThan(Smerge,1)} = 0.4;
         vmax    (1,1) {mustBeReal, mustBePositive, mustBeLessThan(vmax,1)} = 0.8;
+        maxFoCSize  (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 11;
 %         vweightexp  (1,1) {mustBeReal} = 0;
         mergedIDXs  (:,1) cell = cell(0,1); %{mustBeInteger, mustBePositive};
-        mergedSim   (:,1) {mustBeReal} = zeros(0,1);
+        mergedSim   (:,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(mergedSim,1)} = zeros(0,1);
         mergedMFs   (:,2) {mustBeReal} = zeros(0,2);
     end
     
@@ -29,7 +30,7 @@ classdef INFGMN_FisVar < handle
         end
         
         function sim = FoCSim(self)
-            sim = prod(self.mergedSim) ^ (1/ length([ self.mergedIDXs{:} ]) );
+            sim = prod(self.mergedSim) ^ (1/ length(vertcat(self.mergedIDXs{:})) );
         end
         
         function len = FoCSize(self)
@@ -61,7 +62,7 @@ classdef INFGMN_FisVar < handle
                     self.updateIdxMergedMFs(components, idxNewMergedIDX);
                     self.updateIdxMergedSim(components, idxNewMergedIDX);
                 else % it is between
-                    self.putNewMergedIDXAt({idxNewMF}, i_merged);
+                    self.putNewMergedIDXAt({idxNewMF}, i_merged, components);
                     self.tryMergeMFs(components);
                 end
                 break;
@@ -132,13 +133,14 @@ classdef INFGMN_FisVar < handle
             self.Saging = 1;
         end
         
-        function putNewMergedIDXAt(self, newMergedIDX, idxNewMergedIDX)
+        function putNewMergedIDXAt(self, newMergedIDX, idxNewMergedIDX, components)
             self.mergedIDXs = [ self.mergedIDXs(1:idxNewMergedIDX-1); ...
                 newMergedIDX;   self.mergedIDXs(idxNewMergedIDX:end) ];
             self.mergedMFs(idxNewMergedIDX+1:end+1, :) = self.mergedMFs(idxNewMergedIDX:end, :);
             self.mergedSim(idxNewMergedIDX+1:end+1, :) = self.mergedSim(idxNewMergedIDX:end, :);
-            self.updateIdxMergedMFs(components, idxNewMergedIDX-1:idxNewMergedIDX+1);
-            self.updateIdxMergedSim(components, idxNewMergedIDX-1:idxNewMergedIDX+1);
+            adjIdxNewMergedIDX = max(idxNewMergedIDX-1, 1):min(self.FoCSize(), idxNewMergedIDX+1);
+            self.updateIdxMergedMFs(components, adjIdxNewMergedIDX);
+            self.updateIdxMergedSim(components, adjIdxNewMergedIDX);
         end
         
         function popMergedPropsAt(self, idxMerged)
@@ -182,13 +184,18 @@ classdef INFGMN_FisVar < handle
         end
         
         function tryMergeMFs(self, components)
+            if self.FoCSize() == 1
+                return;
+            end
             simOnMerge = zeros(length(self.mergedIDXs)-1, 1);
             for ii = 1:length(simOnMerge) % para cada par de componentes vizinhos
                 simOnMerge(ii) = self.similarIdx([ii, ii+1], components);
             end
             simImprov = simOnMerge ./ (self.mergedSim(1:end-1) .* self.mergedSim(2:end));
             [improv, idxMerged] = max(simImprov);
-            while improv >= 1 || self.FoCSize() > 7
+            while ~isempty(simImprov) && ...
+                    (   improv >= 1 || self.FoCSize() > self.maxFoCSize ...
+                    ||  self.FoCSim() > sqrt(self.Smerge) )
                 self.mergedIDXs{idxMerged} = [self.mergedIDXs{idxMerged}; self.mergedIDXs{idxMerged+1}];
                 self.popMergedPropsAt(idxMerged+1);
                 self.updateIdxMergedMFs(components, idxMerged);
@@ -210,7 +217,7 @@ classdef INFGMN_FisVar < handle
         end
         
         function [sim, merged] = similarIdx(self, idxMergeds, components)
-            idxs = [ self.mergedIDXs{idxMergeds} ];
+            idxs = vertcat(self.mergedIDXs{idxMergeds});
             minXroot = min(components.alphaSupport( idxs, 1 ));
             if min(idxMergeds) > 1
                 minXroot = max( minXroot, ...
@@ -247,6 +254,7 @@ classdef INFGMN_FisVar < handle
                 - spdsum  .* erf(sqrtneglnv);
             sim  = (2 * spdmin + ohm) ...
                 ./ (2 * spdmax - ohm);
+            sim(mudiff==0 & spddiff==0) = 1;
         end
         
 %         function [sim, v] = similarity(self, A, B)
