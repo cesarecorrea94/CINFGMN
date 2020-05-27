@@ -274,7 +274,6 @@ classdef INFGMN_series < handle
             gmm = INFGMN(minmaxDS(DS), 'normalize', self.normalize, ...
                 'delta', dumps_ii.delta, 'tau',  dumps_ii.tau, ...
                 'tmax',  dumps_ii.tmax, 'spmin', dumps_ii.spmin );
-            gmm.setMergeFS(dumps_ii.mergeFS); %%
             warm_up = self.warmup + mod(((length(DS)-1)-self.warmup), self.batchsizes(1));
             n_batches = ((length(DS)-1)-warm_up) / self.batchsizes(1);
             assert(mod(n_batches,1)==0, 'n_batches is not integer');
@@ -291,6 +290,7 @@ classdef INFGMN_series < handle
             if warm_up
                 [gmm, warmup_NCs] = gmm.train(DS(1:warm_up, :));
             end
+            gmm.setSMerge(dumps_ii.Smerge); %%
             for ii = 1:n_batches
                 timeref = cputime;
                 tt = warm_up + ii * self.batchsizes(1);
@@ -342,7 +342,7 @@ classdef INFGMN_series < handle
                 disp('there are dumps to update yet');
                 return;
             elseif length(self.batchsizes) == 1
-                if any([self.dumps.mergeFS])
+                if any([self.dumps.Smerge] ~= 1)
                     error('StopIteration');
                 end
                 obj.etapa_final();
@@ -383,7 +383,7 @@ classdef INFGMN_series < handle
                 [self.dumps.update_needed] = deal(true);
             end
             clone = self.dumps;
-            [clone.mergeFS] = deal(true);
+            [clone.Smerge] = deal(0.5);
             [clone.update_needed] = deal(true);
             self.dumps = [ self.dumps; clone ];
             fprintf('%i particles on final step\n', length(self.dumps));
