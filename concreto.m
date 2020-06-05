@@ -1,28 +1,30 @@
 warning off;
-% dumpname = 'dumps/abbaalone/21-May-2020 14:23:49.mat';
+% dumpname = 'dumps/concreto/29-May-2020 18:01:58.mat';
 %%
 if ~exist('dumpseries', 'var')
     if exist('dumpname', 'var')
         dumpseries = INFGMN_series(dumpname, NaN);
     else
         offset = struct( ...
-            'log2delta', 1,     ...
+            'log2delta', 0.25,     ...
             'log2tau', 1,       ... quando criar novas componentes
             'log2tmax', 0.5,    ... tempo para assimilar instâncias
             'log2maxNC', 0.5);  %%% número máximo de componentes estáveis (não espúrias)
-        log2deltas  =  -(offset.log2delta+  0   :offset.log2delta: 10   -offset.log2delta);
-        log2taus    =  -(offset.log2tau  +  0   :offset.log2tau:   10   -offset.log2tau);
-        log2tmaxs   =   (offset.log2tmax +  4   :offset.log2tmax:   7   -offset.log2tmax);
-        log2maxNCs  =   (offset.log2maxNC+  4   :offset.log2maxNC:  7   -offset.log2maxNC);
+        log2deltas  =  -(offset.log2delta+  0   :offset.log2delta:  1  -offset.log2delta);
+        log2taus    =  -(offset.log2tau  +  7   :offset.log2tau:   17   -offset.log2tau);
+        log2tmaxs   =   (offset.log2tmax +  5   :offset.log2tmax:   9   -offset.log2tmax);
+        log2maxNCs  =   (offset.log2maxNC+  5   :offset.log2maxNC:  9   -offset.log2maxNC);
         normalize = true;%default
 
         DS = concrete_DS();
         fis_types = {'sugeno'};%{'mamdani', 'sugeno'};
         save_fis = false;
+        doMerge = true;
+        maxFoCSize = 5;
         
         dumpseries = INFGMN_series('concreto', offset);
         dumpseries.create_nonseries(DS, ...
-            fis_types, save_fis, normalize, ...
+            fis_types, save_fis, doMerge, maxFoCSize, normalize, ...
             log2deltas, log2taus, log2tmaxs, log2maxNCs);
     end
 end
@@ -31,7 +33,7 @@ end
 try
     for ii=1:1
         fprintf('Iteração: %i\n', ii);
-        dumpseries.update_nonseries();
+        dumpseries.update(INFGMN_series.step_nonseries);
 %         dumpseries.pso_update();
     end
 catch ME

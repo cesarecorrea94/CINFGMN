@@ -40,111 +40,197 @@
 
 %%
 
-% fis=dump_cur.stats(2400).fis;
-% f = @() taimesort(fis);
+% dumpname = 'dumps/SP500/01-May-2020 22:07:24.copy.mat';
+% dumpname = 'dumps/SP500/01-May-2020 22:07:24.mat';
+% self = load(dumpname);
 % 
-% [   timeit(@tsekouras), timeit(@hefny), timeit(@efsm), timeit(f), timeit(@taimerank); ...
-%     timeit(@tsekouras), timeit(@hefny), timeit(@efsm), timeit(f), timeit(@taimerank); ...
-%     timeit(@tsekouras), timeit(@hefny), timeit(@efsm), timeit(f), timeit(@taimerank); ...
-%     timeit(@tsekouras), timeit(@hefny), timeit(@efsm), timeit(f), timeit(@taimerank) ...
-%     ]
-
-% err = zeros(1e1,1e1);
-% for ii=1:1e1
-%     for jj=ii:1e1
-%         A=[ii, 0];
-%         B=[jj, 1e1];
-%         err(ii,jj) = aproximado(A, B) - similarity(A, B);
-%     end
+% offset = struct( ...
+%     'log2delta', 1,     ...
+%     'log2tau', 1,       ... quando criar novas componentes
+%     'log2tmax', 1,      ... tempo para assimilar instâncias
+%     'log2maxNC', 1);    %%% número máximo de componentes estáveis (não espúrias)
+% self.offset = struct2table(offset);
+% 
+% save(dumpname, '-struct', 'self');
+% 
+% dumpname = 'dumps/SP500/01-May-2020 22:07:24.mat';
+% silfa = load(dumpname);
+% fildes = fieldnames(silfa.dumps);
+% for ii=1:length(fildes)
+%     fild=fildes{ii};
+%     fprintf('%s %i\n', fild, all([silfa.dumps.(fild)]==[self.dumps.(fild)]));
 % end
-% err
 
 %%
 
-function index = taimesort(fis)
-    for inp=1:1e2
-        auxtrash = vertcat(fis.Inputs(1).MembershipFunctions.Parameters);
-        [~,index] = sortrows(auxtrash(:,2));
-        clear auxtrash;
+fixFolderDumps('dumps/SP500');
+
+function fixFolderDumps(dumpFolder)
+    allmatfiles = dir([dumpFolder '/*.mat']);
+    for ii = 1:length(allmatfiles)
+        thisFile = fullfile(dumpFolder, allmatfiles(ii).name);
+        try
+            self = load(thisFile);
+            if isfield(self, 'self')
+                self = self.self;
+            end
+            self = fixFieldsSeries(self);
+            save(thisFile, '-struct', 'self');
+        catch ME
+            if strcmp(ME.message, 'aborta')
+                disp(['Jumping ' thisFile]);
+            elseif strcmp(ME.message, 'Integrity is OK')
+                disp([thisFile ': ' ME.message]);
+            else
+                disp([thisFile ': ' ME.message]);
+%                 rethrow(ME);
+            end
+        end
+        clear self;
     end
 end
 
-function index = taimerank()
-    for inp=1:1e2
-        index = rankify(randperm(1e2));
+function self = fixFieldsSeries(self)
+    try
+        need_fix = false;
+        check_integrity(self);
+    catch
+        need_fix = true;
     end
-end
-
-function rank = rankify(array)
-    [sorted, index] = sort(array);
-    rank = ones(1, length(array));
-    for ii = 2:length(sorted)
-        if sorted(ii) == sorted(ii-1)
-            rank(ii) = rank(ii-1);
-        else, rank(ii) = rank(ii-1)+1;
+    if ~need_fix
+        error('Integrity is OK');
+    end
+    if ~isfield(self, 'fis_types')
+        self.fis_types = {'sugeno'};
+    end
+    if ~isfield(self, 'save_fis')
+        lenTrainDS = length(self.DS)-1;
+        self.save_fis = (lenTrainDS-2800):200:lenTrainDS;
+    end
+    %%
+    paramfilds = {'delta', 'tau', 'tmax', 'maxNC'};
+    assert(all(ismember(paramfilds, fieldnames(self.dumps))), 'dumps dont have params');
+    log2filds = strcat('log2', paramfilds);
+    if ~any(isfield(self.dumps, log2filds))
+        if  isfield(self, 'pso')
+            self = rmfield(self, 'pso');
+            assert(  isfield(self, 'offset') && isstruct(self.offset), 'offset from pso is not a struct');
+        else,assert(~isfield(self, 'offset'), 'offset is already a field without log2filds on dumps');
+        end
+        for ii = 1:length(log2filds)
+            log2value = log2([self.dumps.(paramfilds{ii})]);
+            log2cell = num2cell(log2value);
+            [self.dumps.(log2filds{ii})] = deal(log2cell{:});
+            log2unique = unique(log2value);
+            log2diff = unique(log2unique(1:end-1) - log2unique(2:end));
+            if length(log2diff) ~= 1
+                disp('log2fields are unevenly spaced');
+                error('aborta');
+            end
+            if isfield(self, 'offset')
+                assert(self.offset.(log2filds{ii}) == abs(log2diff), ...
+                    'offset from pso differs from the computed');
+            else,self.offset.(log2filds{ii}) = abs(log2diff);
+            end
+        end
+        endy = length(fieldnames(self.dumps));
+        self.dumps = orderfields(self.dumps, [endy-3:endy, 1:endy-4]);
+        self.offset = struct2table(self.offset);
+    end
+    assert(all(isfield(self.dumps, log2filds)), 'log2fields are partially included on dumps');
+    assert(isfield(self, 'offset'), 'offset is not a field of self');
+    assert(istable(self.offset), 'offset is still a struct');
+    assert(~isfield(self, 'pso'), 'pso is still a field from self');
+    %%
+    fild = 'batchsize';
+    if isfield(self.dumps, fild)
+        value = unique([self.dumps.(fild)]);
+        if length(value) ~= 1
+            disp(['More than 1 ' fild ' value on dumps']);
+            error('aborta');
+        end
+        if isfield(self, [fild 's'])
+            value = [value self.([fild 's'])];
+        end
+        if length(value) ~= length(unique(value))
+            disp([fild ' is not unique']);
+            error('aborta');
+        end
+        if ~issorted(value, 'descend')
+            disp([fild ' is not sorted']);
+            error('aborta');
+        end
+        self.([fild 's']) = value;
+        self.dumps = rmfield(self.dumps, fild);
+    end
+    assert(isfield(self, 'batchsizes'), 'batchsizes is not a field of self');
+    if isfield(self, 'initial_filter')
+        if self.initial_filter
+            self.batchsizes = self.batchsizes(2:end);
+        end
+        self = rmfield(self, 'initial_filter');
+    end
+    %%
+    dumpdiff = {'normalize', 'save_stats', 'warmup'};
+    for ii = 1:length(dumpdiff)
+        fild = dumpdiff{ii};
+        if isfield(self.dumps, fild)
+            value = unique([self.dumps.(fild)]);
+            if length(value) ~= 1
+                disp(['More than 1 ' fild ' value']);
+                error('aborta');
+            end
+            if ~isfield(self, fild),           self.(fild) = value;
+            elseif length(self.(fild)) ~= 1 || self.(fild) ~= value
+                disp([fild ' is already a field of self, and differ from dumps']);
+                error('aborta');
+            end
+            self.dumps = rmfield(self.dumps, fild);
         end
     end
-    rank(index) = rank;
+    assert(isfield(self, 'normalize'), 'normalize is not a field of self');
+    if ~isfield(self, 'save_stats')
+        self.save_stats = true;
+    end
+    if ~isfield(self, 'warmup')
+        self.warmup = 0;
+    end
+    %%
+    if isfield(self.dumps, 'mergeFS')
+        assert(~isfield(self.dumps, 'Smerge'), 'Smerge is already a field on dumps');
+        value = num2cell(1 - [self.dumps.mergeFS]./2);
+        [self.dumps.Smerge] = deal(value{:});
+        self.dumps = rmfield(self.dumps, 'mergeFS');
+    end
+    if ~isfield(self.dumps, 'Smerge')
+        [self.dumps.Smerge] = deal(1);
+    end
+    %%
+    if isfield(self.dumps, 'update_needed')
+        idxs = [self.dumps.update_needed];
+        [self.dumps(idxs).progress] = deal(NaN);
+        [self.dumps(idxs).cputime] = deal(NaN);
+        self.dumps = rmfield(self.dumps, 'update_needed');
+    end
+    %%
+    check_integrity(self);
 end
 
-%% % % % % % % % % % % % % % %
-
-function tsekouras()
-    for inp=1:1e+2
-    for ii=1:1e+2
-        possibility([ii+1/3 -10], [ii 10]);
-        possibility([ii+1/3 -10], [ii 10]);
-    end
-    end
-end
-function hefny()
-    for inp=1:1e+2
-    for ii=1:1e+2
-        similarity([ii+1/3 -10], [ii-1/3 10]);
-    end
-    end
-end
-function efsm()
-    for inp=1:1e+2
-    for ii=1:1e+2
-        aproximado([ii+1/3 -10], [ii-1/3 10]);
-    end
-    end
-end
-
-function [sim, v] = aproximado(A, B)
-    v = possibility(A, B);
-    sumAB = (A(1) + B(1))*sqrt(2) * 2*sqrt(-log(0.5));
-    base = (A(2) - B(2)) + sumAB;% sumAB = (baseA+baseB)*1 /2 = sumbaseAB /2;
-    if base > 0
-        % x = [ (x2-x1) *y + (y2x1-y1x2) ]/(y2-y1)
-        % y = [(y2-y1)*(y4*x3-y3*x4) - (y4-y3)(y2*x1-y1*x2)] / [(x2-x1)*(y4-y3) - (y2-y1)*(x4-x3)]
-        % y = [(A(mu)+A(base)/2) - (B(mu)-B(base)/2)] / [A(base)/2 + B(base)/2)]
-        height = base / sumAB;
-        intersect = base * height / 2;
-        union = sumAB - intersect;
-        sim = intersect / union;
-    else, sim = 0;
-    end
-end
-
-function v = possibility(A, B)
-    v = exp( -( (A(2)-B(2)) / (A(1)+B(1)) )^2 /2 );
-end
-
-function [sim, v] = similarity(A, B)
-    spdmin = min(A(1), B(1));
-    betasim = 2 * spdmin / (A(1) + B(1));
-    v = possibility(A, B);
-%     if v > (1+0.8)/2
-%         sim = 1;
-%     elseif v < 0.6 % sim < 0.2;
-%         sim = 0;
-%     else
-        sqrtlnv = sqrt(-log(v));
-        psi = betasim ...
-            + (1 - betasim) * erf( (1/(1-betasim)) * sqrtlnv ) ...
-            - erf( sqrtlnv );
-        sim = psi / (2 - psi);
-%     end
+function check_integrity(self)
+    selffields = {'DS','dumps','offset','normalize','warmup','batchsizes',...
+        'fis_types','save_stats','save_fis'};
+    selfdiff = setdiff(selffields, fieldnames(self));
+    assert(isempty(selfdiff), ['Fields ' selfdiff{:} ' lacked on self']);
+    selfdiff = setdiff(fieldnames(self), selffields);
+    assert(isempty(selfdiff), ['Fields ' selfdiff{:} ' remained on self']);
+    assert(istable(self.offset), 'offset is still a struct');
+    %%
+    paramfilds = {'delta', 'tau', 'tmax', 'maxNC'};
+    log2filds = strcat('log2', paramfilds);
+    dumpfields = [log2filds paramfilds {'spmin','progress','cputime','stats',...
+        'mean_NC','RMS_NC','mamdani_RMSE','sugeno_RMSE','Smerge'}];
+    dumpdiff = setdiff(dumpfields, fieldnames(self.dumps));
+    assert(isempty(dumpdiff), ['Fields ' dumpdiff{:} ' lacked on dumps']);
+    dumpdiff = setdiff(fieldnames(self.dumps), dumpfields);
+    assert(isempty(dumpdiff), ['Fields ' dumpdiff{:} ' remained on dumps']);
 end
