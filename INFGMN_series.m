@@ -8,16 +8,15 @@ classdef INFGMN_series < handle
     end
     
     methods(Static)
-        function dumps = hola(dumps, Smerge)
+        function dumps = hola(dumps, ~)
             dumps.delta         = 2 .^ dumps.log2delta;
             dumps.tau           = 2 .^ dumps.log2tau;
             dumps.tmax          = 2 .^ dumps.log2tmax;
             dumps.maxNC         = 2 .^ dumps.log2maxNC;
             dumps.spmin         = 2 .^ (dumps.log2tmax - dumps.log2maxNC);
-            dumps.Smerge        = zeros(height(dumps), 1) + Smerge;
-            dumps.cputime       = zeros(height(dumps), 1);
-            dumps.progress      =  ones(height(dumps), 1);
-            dumps.update_needed =  true(height(dumps), 1);
+            dumps.Smerge        = zeros(height(dumps), 1) + 0.7;
+            dumps.cputime       =   NaN(height(dumps), 1);
+            dumps.progress      =   NaN(height(dumps), 1);
             dumps.stats         =  cell(height(dumps), 1);
             dumps.mean_NC       =   NaN(height(dumps), 1);
             dumps.RMS_NC        =   NaN(height(dumps), 1);
@@ -25,15 +24,13 @@ classdef INFGMN_series < handle
             dumps.sugeno_RMSE   =   NaN(height(dumps), 1);
             dumps = table2struct(dumps);
         end
-        function dumps = hola_nonseries(dumps, Smerge)
+        function dumps = hola_nonseries(dumps)
             dumps.delta         = 2 .^ dumps.log2delta;
             dumps.tau           = 2 .^ dumps.log2tau;
             dumps.tmax          = 2 .^ dumps.log2tmax;
             dumps.maxNC         = 2 .^ dumps.log2maxNC;
             dumps.spmin         = 2 .^ (dumps.log2tmax - dumps.log2maxNC);
-            dumps.Smerge        = zeros(height(dumps), 1) + Smerge;
-            dumps.cputime       = zeros(height(dumps), 1);
-            dumps.update_needed =  true(height(dumps), 1);
+            dumps.cputime       =   NaN(height(dumps), 1);
             dumps.stats         =  cell(height(dumps), 1);
             dumps.mean_NC       =   NaN(height(dumps), 1);
             dumps.mamdani_RMSE  =   NaN(height(dumps), 1);
@@ -79,133 +76,8 @@ classdef INFGMN_series < handle
             end
         end
         
-        %% INFGMN_nonseries
-        
-        function obj = create_nonseries(obj, DS, ...
-                fis_types, save_fis, normalize, ...
-                delta_list, tau_list, tmax_list, maxNC_list)
-            self = obj.myself();
-            self.DS = DS;
-            self.fis_types = fis_types;
-            self.save_fis = save_fis;
-            self.normalize = normalize;
-            %% https://www.mathworks.com/matlabcentral/answers/433424-how-to-get-the-combinations-of-elements-of-two-arrays
-            C = {delta_list', tau_list', tmax_list', maxNC_list'};
-            D = C;
-            [D{:}] = ndgrid(C{:});
-            Z = cell2mat(cellfun(@(m)m(:),D,'uni',0));
-            particles = array2table(Z, ...
-                'VariableNames', {'log2delta', 'log2tau', 'log2tmax', 'log2maxNC'});
-            self.dumps = INFGMN_series.hola_nonseries(particles, 1);
-            fprintf('%i new particles\n', length(self.dumps));
-            obj.save_myself(self, true);
-        end
-
-        function self = update_nonseries(obj)
-            self = obj.myself();
-            count_updates = sum([self.dumps.update_needed]);
-            fprintf('%i combinations to be updated\n', count_updates);
-            fprintf(' step/comb.:  step time  | estimated remain time\n');
-            count_i = 0;
-            sumsteptime = 0;
-            next_save = cputime + 60;
-            for ii = 1:length(self.dumps)
-                if ~self.dumps(ii).update_needed
-                    continue
-                end
-                if cputime > next_save
-                    saveref = cputime;
-                    obj.save_myself(self, true);
-                    savetime = cputime - saveref;
-                    next_save = cputime + 60 + savetime * 20;
-                end
-                try
-                    self.dumps(ii) = obj.step_nonseries(self, self.dumps(ii));
-                catch ME
-                    if (strcmp(ME.message,'Ill Conditioned Covariance.')) ...
-                            || (strcmp(ME.message,'Too many components. Aborting.'))
-                        % self.dumps(ii).progress = 0;
-                        self.dumps(ii).update_needed = false;
-                        count_updates = count_updates - 1;
-                        disp([ME.message ' Proceeding to the next iteration.']);
-                        continue
-                    else
-                        disp(ME);
-                        rethrow(ME);
-                    end
-                end
-                count_i = count_i + 1;
-                sumsteptime = sumsteptime + self.dumps(ii).cputime;
-                fprintf('% 5i/% 5i: % 7.2f sec | % 8.2f min\n', ...
-                    count_i, count_updates, self.dumps(ii).cputime, ...
-                    sumsteptime / count_i * (count_updates - count_i) / 60);
-            end
-            fprintf('Elapsed time: %.2f min\n', sumsteptime/60);
-            obj.save_myself(self, true);
-        end
-        
-        function dumps_ii = step_nonseries(~, self, dumps_ii)
-            comb_test = combnk(1:5, 2);
-            n_stats = size(comb_test,1) * 1 * length(self.fis_types);
-            stats = struct( ...
-                'cputime', NaN, ...
-                'NC', cell(1, n_stats), ...
-                'mamdani_RMSE', NaN, ...
-                'sugeno_RMSE', NaN, ...
-                'Smerge', NaN, ...
-                'fis', NaN );
-            nsamples = size(self.DS,1);
-            cellDS = cell(1, 5);
-            for i_split = 1:5
-                cellDS{i_split} = self.DS(round(nsamples*(i_split-1)/5)+1:round(nsamples*i_split/5), :);
-            end
-            i_stats = 0;
-            for i_comb = 1:size(comb_test,1)
-                comb_train = setdiff(1:5, comb_test(i_comb,:));
-                train = vertcat(cellDS{comb_train});
-                test  = vertcat(cellDS{comb_test(i_comb,:)});
-                expected_output = dataset2mat(test(:, end));
-                rng(0);
-                train = train(randperm(size(train,1)), :);
-                % %
-                gmm = INFGMN(minmaxDS(self.DS), 'normalize', self.normalize, ...
-                    'delta', dumps_ii.delta, 'tau',  dumps_ii.tau, ...
-                    'tmax',  dumps_ii.tmax, 'spmin', dumps_ii.spmin );
-                timeref = cputime;
-                gmm.train( train );
-                traintime = cputime - timeref;
-                Smerge_list = 1:1;
-                for Smerge = Smerge_list
-                    i_stats = i_stats + 1;
-                    timeref = cputime;
-                    gmm.setSMerge(Smerge);
-                    for type = self.fis_types
-                        gmm.setFisType(type{1});
-                        output = gmm.recall( test(:, 1:end-1) );
-                        output = dataset2mat(output);
-                        stats(i_stats).([type{1} '_RMSE']) = sqrt(mean((output - expected_output).^2));
-                    end
-                    stats(i_stats).NC = gmm.modelSize();
-                    stats(i_stats).Smerge = Smerge;
-                    if self.save_fis
-                        stats(i_stats).fis = gmm.toFIS();
-                    end
-                    stats(i_stats).cputime = (cputime - timeref) ...
-                        + traintime / length(Smerge_list);
-                end % Smerge
-            end % train,test
-            dumps_ii.update_needed = false;
-            dumps_ii.cputime = sum( [stats.cputime] );
-            dumps_ii.mean_NC = mean([stats.NC], 'omitnan');
-            dumps_ii.mamdani_RMSE = mean([stats.mamdani_RMSE],  'omitnan');
-            dumps_ii.sugeno_RMSE  = mean([stats.sugeno_RMSE],   'omitnan');
-            dumps_ii.stats = stats;
-        end
-        
-        %% INFGMN_series
-        
-        function obj = create(obj, DS, warmup, batchsizes, initial_filter, ...
-                fis_types, save_stats, save_fis, normalize, ...
+        function obj = create(obj, DS, warmup, batchsizes, ...
+                fis_types, save_stats, save_fis, maxFoCSize, normalize, ...
                 delta_list, tau_list, tmax_list, maxNC_list)
             self = obj.myself();
             self.DS = DS;
@@ -214,8 +86,8 @@ classdef INFGMN_series < handle
             self.fis_types = fis_types;
             self.save_stats = save_stats;
             self.save_fis = save_fis;
+            self.maxFoCSize = maxFoCSize;
             self.normalize = normalize;
-            self.initial_filter = initial_filter;
             %% https://www.mathworks.com/matlabcentral/answers/433424-how-to-get-the-combinations-of-elements-of-two-arrays
             C = {delta_list', tau_list', tmax_list', maxNC_list'};
             D = C;
@@ -228,54 +100,136 @@ classdef INFGMN_series < handle
             obj.save_myself(self, true);
         end
 
-        function self = update(obj, check_break)
+        function obj = create_nonseries(obj, DS, ...
+                fis_types, save_fis, doMerge, maxFoCSize, normalize, ...
+                delta_list, tau_list, tmax_list, maxNC_list)
             self = obj.myself();
-            count_updates = sum([self.dumps.update_needed]);
-            fprintf('%i combinations to be updated\n', count_updates);
+            self.DS = DS;
+            self.fis_types = fis_types;
+            self.save_fis = save_fis;
+            self.doMerge = doMerge;
+            self.maxFoCSize = maxFoCSize;
+            self.normalize = normalize;
+            %% https://www.mathworks.com/matlabcentral/answers/433424-how-to-get-the-combinations-of-elements-of-two-arrays
+            C = {delta_list', tau_list', tmax_list', maxNC_list'};
+            D = C;
+            [D{:}] = ndgrid(C{:});
+            Z = cell2mat(cellfun(@(m)m(:),D,'uni',0));
+            particles = array2table(Z, ...
+                'VariableNames', {'log2delta', 'log2tau', 'log2tmax', 'log2maxNC'});
+            self.dumps = INFGMN_series.hola_nonseries(particles);
+            fprintf('%i new particles\n', length(self.dumps));
+            obj.save_myself(self, true);
+        end
+
+        %% update
+        
+        function self = update(obj, core_step_function)
+            self = obj.myself();
+            uptodate = sum(~isnan([self.dumps.cputime]));
+            len_dumps = length(self.dumps);
+            fprintf('%i combinations to be updated\n', len_dumps - uptodate);
+            if len_dumps == uptodate, return; end
             fprintf(' step/comb.:  step time  | estimated remain time\n');
-            count_i = 0;
-            sumsteptime = 0;
-            next_save = cputime + 60;
-            for ii = 1:length(self.dumps)
-                if ~self.dumps(ii).update_needed
+            sumsteptime = sum([self.dumps.cputime], 'omitnan');
+            next_save = cputime + 120;
+            rng(0);
+            for ii = randperm(len_dumps)
+                if ~isnan(self.dumps(ii).cputime)
                     continue
                 end
                 if cputime > next_save
                     saveref = cputime;
                     obj.save_myself(self, true);
                     savetime = cputime - saveref;
-                    next_save = cputime + 60 + savetime * 20;
+                    next_save = cputime + 120 + savetime * 20;
                 end
+                timeref = cputime;
+                err_msg = '';
                 try
-                    self.dumps(ii) = obj.step(self, self.dumps(ii), self.DS, check_break);
+                    self.dumps(ii) = core_step_function(self, self.dumps(ii));
                 catch ME
-                    if (strcmp(ME.message,'Ill Conditioned Covariance.'))
-                        self.dumps(ii).progress = 0;
-                        self.dumps(ii).update_needed = false;
-                        count_updates = count_updates - 1;
-                        disp([ME.message ' Proceeding to the next iteration.']);
-                        continue
+                    if strcmp(ME.message, 'Ill Conditioned Covariance.') ...
+                            || strcmp(ME.identifier, 'INFGMN:Abortar')
+                        err_msg = [' - ' ME.message];
                     else
                         disp(ME);
                         rethrow(ME);
                     end
                 end
-                count_i = count_i + 1;
+                self.dumps(ii).cputime = cputime - timeref;
                 sumsteptime = sumsteptime + self.dumps(ii).cputime;
-                fprintf('% 5i/% 5i: % 7.2f sec | % 8.2f min\n', ...
-                    count_i, count_updates, self.dumps(ii).cputime, ...
-                    sumsteptime / count_i * (count_updates - count_i) / 60);
+                uptodate = uptodate + 1;
+                
+                fprintf('% 5i/% 5i:% 8.2f sec |% 10.2f min %s\n', ...
+                    uptodate, len_dumps, self.dumps(ii).cputime, ...
+                    (len_dumps - uptodate) * (sumsteptime / uptodate)/60, ...
+                    err_msg);
             end
             fprintf('Elapsed time: %.2f min\n', sumsteptime/60);
             obj.save_myself(self, true);
         end
         
-        function dumps_ii = step(~, self, dumps_ii, DS, check_break)
-            gmm = INFGMN(minmaxDS(DS), 'normalize', self.normalize, ...
+    end
+    
+    methods(Static)
+        %% step
+        function dumps_ii = step_nonseries(self, dumps_ii)
+            comb_test = combnk(1:5, 2);
+            n_stats = size(comb_test,1);
+            stats = struct( ...
+                'cputime', NaN, ...
+                'NC', cell(1, n_stats), ...
+                'mamdani_RMSE', NaN, ...
+                'sugeno_RMSE', NaN, ...
+                'fis', NaN );
+            nsamples = size(self.DS,1);
+            cellDS = cell(1, 5);
+            for i_split = 1:5
+                cellDS{i_split} = self.DS(round(nsamples*(i_split-1)/5)+1:round(nsamples*i_split/5), :);
+            end
+            for i_comb = 1:size(comb_test,1)
+                comb_train = setdiff(1:5, comb_test(i_comb,:));
+                train = vertcat(cellDS{comb_train});
+                rng(0);
+                train = train(randperm(size(train,1)), :);
+                test  = vertcat(cellDS{comb_test(i_comb,:)});
+                expected_output = dataset2mat(test(:, end));
+                % %
+                gmm = INFGMN(minmaxDS(self.DS), 'normalize', self.normalize, ...
+                    'delta', dumps_ii.delta, 'tau',  dumps_ii.tau, ...
+                    'tmax',  dumps_ii.tmax, 'spmin', dumps_ii.spmin );
+                timeref = cputime;
+                gmm.train( train );
+                % gmm.train( train );
+                gmm.setMaxFoCSize(self.maxFoCSize);
+                gmm.setSMerge((1 + ~self.doMerge)/2);
+                for type = self.fis_types
+                    gmm.setFisType(type{1});
+                    output = gmm.recall( test(:, 1:end-1) );
+                    output = dataset2mat(output);
+                    stats(i_comb).([type{1} '_RMSE']) = sqrt(mean((output - expected_output).^2));
+                end
+                stats(i_comb).NC = gmm.modelSize();
+                if self.save_fis
+                    stats(i_comb).fis = gmm.toFIS();
+                end
+                stats(i_comb).cputime = cputime - timeref;
+                delete(gmm);
+            end % train,test
+            dumps_ii.mean_NC = mean([stats.NC], 'omitnan');
+            dumps_ii.mamdani_RMSE = mean([stats.mamdani_RMSE],  'omitnan');
+            dumps_ii.sugeno_RMSE  = mean([stats.sugeno_RMSE],   'omitnan');
+            dumps_ii.stats = stats;
+        end
+        
+        function dumps_ii = step(self, dumps_ii)
+            gmm = INFGMN(minmaxDS(self.DS), 'normalize', self.normalize, ...
                 'delta', dumps_ii.delta, 'tau',  dumps_ii.tau, ...
                 'tmax',  dumps_ii.tmax, 'spmin', dumps_ii.spmin );
-            warm_up = self.warmup + mod(((length(DS)-1)-self.warmup), self.batchsizes(1));
-            n_batches = ((length(DS)-1)-warm_up) / self.batchsizes(1);
+            lenTrainDS = length(self.DS)-1;
+            warm_up = self.warmup + mod((lenTrainDS - self.warmup), self.batchsizes(1));
+            n_batches = (lenTrainDS - warm_up) / self.batchsizes(1);
             assert(mod(n_batches,1)==0, 'n_batches is not integer');
             stats = struct( ...
                 't', cell(1, n_batches), ...
@@ -285,22 +239,21 @@ classdef INFGMN_series < handle
                 'sugeno_output', NaN, 'sugeno_err', NaN, ...
                 'cputime', NaN, ...
                 'fis', NaN );
-            window = 2 * ceil(dumps_ii.tmax);
-            batches_in_a_window = ceil(window / self.batchsizes(1));
             if warm_up
-                [gmm, warmup_NCs] = gmm.train(DS(1:warm_up, :));
+                [gmm, warmup_NCs] = gmm.train(self.DS(1:warm_up, :));
             end
-            gmm.setSMerge(dumps_ii.Smerge); %%
+            gmm.setMaxFoCSize(self.maxFoCSize);
+            gmm.setSMerge(dumps_ii.Smerge);
             for ii = 1:n_batches
                 timeref = cputime;
                 tt = warm_up + ii * self.batchsizes(1);
                 stats(ii).t = tt;
-                [gmm, stats(ii).NCs] = gmm.train( ...
-                    DS((tt-(self.batchsizes(1)-1)):tt, :) );
-                stats(ii).expected_output = dataset2mat(DS(tt+1, end));
+                batch = (tt-(self.batchsizes(1)-1)):tt;
+                [gmm, stats(ii).NCs] = gmm.train( self.DS(batch, :) );
+                stats(ii).expected_output = dataset2mat(self.DS(tt+1, end));
                 for type = self.fis_types
                     gmm.setFisType(type{1});
-                    output = gmm.recall(DS(tt+1, 1:end-1));
+                    output = gmm.recall(self.DS(tt+1, 1:end-1));
                     output = dataset2mat(output);
                     stats(ii).([type{1} '_output']) = output;
                     stats(ii).([type{1} '_err']) = output - stats(ii).expected_output;
@@ -310,21 +263,10 @@ classdef INFGMN_series < handle
                     stats(ii).fis = gmm.toFIS();
                 end
                 stats(ii).cputime = cputime - timeref;
-                if  ii >= 1 + batches_in_a_window ...
-                        && any( dumps_ii.maxNC < movmean( ...
-                                [stats((ii-batches_in_a_window):ii).NCs], window, ...
-                                'Endpoints', 'discard') ) ...
-                        || check_break(dumps_ii, stats(1:ii))
-                    stats = stats(1:ii);
-                    dumps_ii.progress = tt / (length(DS)-1);
-                    break
-                end
             end
             if warm_up
                 stats(1).NCs = [warmup_NCs stats(1).NCs];
             end
-            dumps_ii.update_needed = false;
-            dumps_ii.cputime    = sum( [stats.cputime] );
             dumps_ii.mean_NC    =        mean(  [stats.NCs],    'omitnan');
             dumps_ii.RMS_NC     =   sqrt(mean(  [stats.NCs].^2, 'omitnan'));
             dumps_ii.mamdani_RMSE = sqrt(mean(  [stats.mamdani_err].^2, 'omitnan'));
@@ -332,27 +274,26 @@ classdef INFGMN_series < handle
             if self.save_stats
                 dumps_ii.stats = stats;
             end
+            delete(gmm);
         end
         
+    end
+    
+    methods
         %% PSO
-        
         function pso_update(obj)
             self = obj.myself();
-            if  any([self.dumps.update_needed])
+            if  any(isnan([self.dumps.cputime]))
                 disp('there are dumps to update yet');
                 return;
             elseif length(self.batchsizes) == 1
-                if any([self.dumps.Smerge] ~= 1)
+%                 if any([self.dumps.Smerge] ~= 1)
                     error('StopIteration');
-                end
-                obj.etapa_final();
-                return;
-            elseif self.initial_filter
-                self.batchsizes(1) = [];
-                self.initial_filter = false;
-                [self.dumps([self.dumps.progress]==1).update_needed] = deal(true);
-                obj.save_myself(self, true);
-                return;
+%                 end
+%                 self = obj.etapa_final(self);
+%                 obj.dumpname = [obj.dumpname '_final.mat'];
+%                 obj.save_myself(self, false);
+%                 return;
             end
             self.batchsizes(1) = [];
             self.offset{:,:} = self.offset{:,:}/2;
@@ -369,8 +310,7 @@ classdef INFGMN_series < handle
             obj.save_myself(self, false);
         end
         
-        function etapa_final(obj)
-            self = obj.myself();
+        function self = etapa_final(~, self)
 %             self.dumps = self.dumps([self.dumps.progress]==1);
             self.dumps = INFGMN_series.get_best(self.dumps);
             assert(~isempty(self.save_fis), 'save_fis is empty');
@@ -380,28 +320,28 @@ classdef INFGMN_series < handle
                 self.fis_types = {'mamdani', 'sugeno'};
                 self.warmup = 0;
                 self.batchsizes = 1;
-                [self.dumps.update_needed] = deal(true);
+                [self.dumps.progress] = deal(NaN);
+                [self.dumps.cputime ] = deal(NaN);
             end
             clone = self.dumps;
-            [clone.Smerge] = deal(0.5);
-            [clone.update_needed] = deal(true);
+            [clone.Smerge] = deal(0.7);
+            [clone.progress] = deal(NaN);
+            [clone.cputime ] = deal(NaN);
             self.dumps = [ self.dumps; clone ];
             fprintf('%i particles on final step\n', length(self.dumps));
-            obj.dumpname = [obj.dumpname '_final.mat'];
-            obj.save_myself(self, false);
         end
         
     end
 
     methods(Static)
         
-        function JCV = get_JCV(last_dump)
-            J = [last_dump.sugeno_RMSE]';
+        function JCV = get_JCV(dumps)
+            J = [dumps.sugeno_RMSE]';
 %             J = J .* (7 .^ (1 - min(1, ([last_dump.mean_NC]'-1)/(7-1))));
             J(isnan(J)) = Inf;
-            CV = [last_dump.RMS_NC]' ./ [last_dump.maxNC]';
+            CV = [dumps.RMS_NC]' ./ [dumps.maxNC]';
             CV(isnan(CV)) = Inf;
-            CV([last_dump.progress] < 1) = Inf;
+%             CV([dumps.progress] < 1) = Inf;
             JCV = table(J, CV, 'VariableNames', {'J', 'CV'});
         end
         
