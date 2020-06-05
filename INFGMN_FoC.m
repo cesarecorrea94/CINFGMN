@@ -8,10 +8,10 @@ classdef INFGMN_FoC < handle
     end
     
     properties
-        Saging  (1,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(Saging,1)} = 1;
+        Sage    (1,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(Sage,1)} = 1;
         Smerge  (1,1) {mustBeReal, mustBePositive, mustBeLessThan(Smerge,1)} = 0.4;
         vmax    (1,1) {mustBeReal, mustBePositive, mustBeLessThan(vmax,1)} = 0.8;
-        maxFoCSize  (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 11;
+        maxFoCSize  (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 7;
 %         vweightexp  (1,1) {mustBeReal} = 0;
         mergedIDXs  (:,1) cell = cell(0,1); %{mustBeInteger, mustBePositive};
         mergedSim   (:,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(mergedSim,1)} = zeros(0,1);
@@ -20,7 +20,8 @@ classdef INFGMN_FoC < handle
     
     methods
         
-        function self = INFGMN_FoC(Smerge, vmax, compMFs)
+        function self = INFGMN_FoC(maxFoCSize, Smerge, vmax, compMFs)
+            self.maxFoCSize = maxFoCSize;
             self.Smerge = Smerge;
             self.vmax = vmax;
 %             vmerge = (1+vmax)/2;
@@ -61,18 +62,22 @@ classdef INFGMN_FoC < handle
             end
             self.updateAllMergedMFs(components);
             self.updateAllMergedSim(components);
+            self.Sage = self.aging();
             if thereIsANewComponent
-                if sqrt(self.Saging) * self.FoCSim() < self.Smerge
+                if self.aging() < self.Smerge
                     self.renewFoC(components);
                     return;
                 end
                 self.fitNewComponent(components);
-                self.Saging = sqrt(self.Saging) * self.FoCSim(); % double-aging
+                self.Sage = self.aging(); % double-aging
             end
-            self.Saging = sqrt(self.Saging) * self.FoCSim();
-            if self.Saging < self.Smerge
+            if self.Sage < self.Smerge
                 self.renewFoC(components);
             end
+        end
+        
+        function age = aging(self)
+            age = sqrt(min(self.Sage, self.Smerge)) * self.FoCSim();
         end
         
         function purge(self, idx)
@@ -130,9 +135,7 @@ classdef INFGMN_FoC < handle
             end
             simImprov = simOnMerge ./ (self.mergedSim(1:end-1) .* self.mergedSim(2:end));
             [improv, idxMerged] = max(simImprov);
-            while ~isempty(simImprov) && ...
-                    (   improv >= 1 || self.FoCSize() > self.maxFoCSize ...
-                    ||  self.FoCSim() > sqrt(self.Smerge) )
+            while ~isempty(simImprov) && ( improv >= 1 || self.FoCSize() > self.maxFoCSize )
                 self.mergedIDXs{idxMerged} = [self.mergedIDXs{idxMerged}; self.mergedIDXs{idxMerged+1}];
                 self.popMergedPropsAt(idxMerged+1);
                 self.updateIdxMergedMFs(components, idxMerged);
@@ -159,7 +162,7 @@ classdef INFGMN_FoC < handle
             self.updateAllMergedMFs(components);
             self.updateAllMergedSim(components);
             self.tryMergeMFs(components);
-            self.Saging = 1;
+            self.Sage = 1;
         end
         
         function putNewMergedIDXAt(self, newMergedIDX, idxNewMergedIDX, components)
@@ -251,6 +254,10 @@ classdef INFGMN_FoC < handle
             sim  = (2 * spdmin + ohm) ...
                 ./ (2 * spdmax - ohm);
             sim(mudiff==0 & spddiff==0) = 1;
+            assert(~any(isnan(sim)));
+            lim_inf = 1e-15;
+            sim(-1e-15 < sim & sim < lim_inf) = lim_inf;
+            assert(all(sim > 0));
         end
         
 %         function [sim, v] = similarity(self, A, B)
@@ -287,6 +294,7 @@ classdef INFGMN_FoC < handle
             maxXroot = max(alphaSupports(:, 2));
             newMu = (minXroot + maxXroot) / 2;
             newSigma = (maxXroot - newMu) / INFGMN_FoC.ALPHA_AUX;
+            newSigma = max(newSigma, 1e-7);
             merged = [newSigma, newMu];
         end
         

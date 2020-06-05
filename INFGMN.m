@@ -12,11 +12,10 @@ classdef INFGMN < handle
         normalize;
         regValue;
         
-        pimax = 0.8;
         vmax = 0.75;
-        Smerge = 1;%0.7;
-        fisvarstruct;
-        lastRenew = 0;
+        Smerge = 1;
+        maxFoCSize = 15;
+        FoCstruct;
         
         sps = [];
         st = [];
@@ -209,7 +208,7 @@ classdef INFGMN < handle
             %% Creates a component at the mean of the estimated ranges of the problem features.
             self.createComponent(mean(self.ranges))
             if self.Smerge < 1
-                self.renewMFs();
+                self.renewFoCs();
             end
         end
         
@@ -246,7 +245,7 @@ classdef INFGMN < handle
                 end
                 NCs(i) = self.modelSize(); %debug%
                 if self.modelSize() > 99
-                    error('Too many components. Aborting.');
+                    error('INFGMN:Abortar', 'Too many components.');
                 end
             end
             
@@ -258,13 +257,18 @@ classdef INFGMN < handle
         function updateFisVar(self, thereIsANewComponent)
             for i_vn = 1:length(self.varNames) % para cada feature
                 compMFs = [ squeeze(self.covs(i_vn, i_vn, :)) .^ self.spread, self.means(:, i_vn) ];
-                self.fisvarstruct.(self.varNames{i_vn}).updateSystem( compMFs, thereIsANewComponent );
+                self.FoCstruct.(self.varNames{i_vn}).updateSystem( compMFs, thereIsANewComponent );
             end
         end
         
-        function renewMFs(self)
+        function renewFoCs(self)
+%             FoCfieldnames = fieldnames(self.FoCstruct);
+%             for i_field = 1:length(FoCfieldnames)
+%                 FoChandle = self.FoCstruct.(FoCfieldnames{i_field});
+%                 delete(FoChandle);
+%             end
             for i_vn = 1:length(self.varNames) % para cada feature
-                self.fisvarstruct.(self.varNames{i_vn}) = INFGMN_FisVar( self.Smerge, self.vmax, ...
+                self.FoCstruct.(self.varNames{i_vn}) = INFGMN_FoC( self.maxFoCSize, self.Smerge, self.vmax, ...
                     [ squeeze(self.covs(i_vn, i_vn, :)) .^ self.spread, self.means(:, i_vn) ] );
             end
         end
@@ -347,7 +351,7 @@ classdef INFGMN < handle
 %                         diffmeans = x(d) - self.means(j, d);
 %                         sumcovs = covini(d) + self.covs(d, d, j);
 %                         possibility = exp(-(diffmeans/sumcovs)^2);
-%                         if possibility > self.pimax && ...
+%                         if possibility > self.vmax && ...
 %                                 possibility > violations(1,d)
 %                             violations(:,d) = [...
 %                                 possibility; j; ...
@@ -436,7 +440,7 @@ classdef INFGMN < handle
 
         function removeFromMerged(self, i_nc)
             for i_vn = 1:length(self.varNames)
-                self.fisvarstruct.(self.varNames{i_vn}).purge(i_nc);
+                self.FoCstruct.(self.varNames{i_vn}).purge(i_nc);
             end
         end
         
@@ -596,7 +600,15 @@ classdef INFGMN < handle
         function setSMerge(self, newSmerge)
             self.Smerge = newSmerge;
             if self.Smerge < 1
-                self.renewMFs();
+                self.renewFoCs();
+            end
+            self.needsFisUpdate = true;
+        end
+        
+        function setMaxFoCSize(self, newMaxFoCSize)
+            self.maxFoCSize = newMaxFoCSize;
+            if self.Smerge < 1
+                self.renewFoCs();
             end
             self.needsFisUpdate = true;
         end
@@ -645,7 +657,7 @@ classdef INFGMN < handle
 %                 mus = self.dilatedMeansForVar(inputIndexes(i)); 
                 varName = self.varNames{inputIndexes(i)};
                 if  self.Smerge < 1
-                    till = size(self.fisvarstruct.(varName).mergedMFs, 1);
+                    till = size(self.FoCstruct.(varName).mergedMFs, 1);
                 else
                     till = self.nc;
                     mus = self.means(:, inputIndexes(i));
@@ -655,8 +667,8 @@ classdef INFGMN < handle
                     varName, [range(1), range(2)]);
                 for j = 1:till
                     if self.Smerge < 1
-                        spd = self.fisvarstruct.(varName).mergedMFs(j, 1);
-                        mu  = self.fisvarstruct.(varName).mergedMFs(j, 2);
+                        spd = self.FoCstruct.(varName).mergedMFs(j, 1);
+                        mu  = self.FoCstruct.(varName).mergedMFs(j, 2);
                     else
                         mu = mus(j);
                         spd = spreads(j);
@@ -728,8 +740,8 @@ classdef INFGMN < handle
             if self.Smerge < 1
                 for inp = 1:length(self.fis.Inputs)
                     varName = self.varNames{inputIndexes(inp)};
-                    for i_mf = 1:length(self.fisvarstruct.(varName).mergedIDXs)
-                        ruleList(self.fisvarstruct.(varName).mergedIDXs{i_mf}, inp) = i_mf;
+                    for i_mf = 1:length(self.FoCstruct.(varName).mergedIDXs)
+                        ruleList(self.FoCstruct.(varName).mergedIDXs{i_mf}, inp) = i_mf;
                     end
                 end
 % %                 ruleList(:, end-1) = self.priors;
