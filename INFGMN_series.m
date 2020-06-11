@@ -8,13 +8,13 @@ classdef INFGMN_series < handle
     end
     
     methods(Static)
-        function dumps = hola(dumps, ~)
+        function dumps = hola(dumps)
             dumps.delta         = 2 .^ dumps.log2delta;
             dumps.tau           = 2 .^ dumps.log2tau;
             dumps.tmax          = 2 .^ dumps.log2tmax;
             dumps.maxNC         = 2 .^ dumps.log2maxNC;
             dumps.spmin         = 2 .^ (dumps.log2tmax - dumps.log2maxNC);
-            dumps.Smerge        = zeros(height(dumps), 1) + 0.7;
+            dumps.Smerge        =   NaN(height(dumps), 1);
             dumps.cputime       =   NaN(height(dumps), 1);
             dumps.progress      =   NaN(height(dumps), 1);
             dumps.stats         =  cell(height(dumps), 1);
@@ -66,18 +66,23 @@ classdef INFGMN_series < handle
                     ' Lets proceed with that file.']);
             else
                 ff = waitbar(0, 'Please wait.');
-                pause(1);
+                pause(0.5);
                 waitbar(1/3, ff, 'Please wait...');
-                pause(1);
+                pause(0.5);
                 waitbar(2/3, ff, 'Saving myself.');
-                save(obj.dumpname, '-struct', 'self');
+                [filepath,name,ext] = fileparts(obj.dumpname);
+                tmpname = fullfile(filepath, ['.TMP_' name ext]);
+                save(tmpname, '-struct', 'self');
+                [successful,msg] = movefile(tmpname, obj.dumpname);
+                if ~successful, error(msg); end
                 waitbar(1, ff, 'Done.');
                 close(ff);
             end
         end
         
         function obj = create(obj, DS, warmup, batchsizes, ...
-                fis_types, save_stats, save_fis, maxFoCSize, normalize, ...
+                fis_types, save_stats, save_fis, ...
+                Smerge, maxFoCSize, normalize, ...
                 delta_list, tau_list, tmax_list, maxNC_list)
             self = obj.myself();
             self.DS = DS;
@@ -86,6 +91,7 @@ classdef INFGMN_series < handle
             self.fis_types = fis_types;
             self.save_stats = save_stats;
             self.save_fis = save_fis;
+            self.Smerge = Smerge;
             self.maxFoCSize = maxFoCSize;
             self.normalize = normalize;
             %% https://www.mathworks.com/matlabcentral/answers/433424-how-to-get-the-combinations-of-elements-of-two-arrays
@@ -95,7 +101,7 @@ classdef INFGMN_series < handle
             Z = cell2mat(cellfun(@(m)m(:),D,'uni',0));
             particles = array2table(Z, ...
                 'VariableNames', {'log2delta', 'log2tau', 'log2tmax', 'log2maxNC'});
-            self.dumps = INFGMN_series.hola(particles, 1);
+            self.dumps = INFGMN_series.hola(particles);
             fprintf('%i new particles with batchsize = %i\n', length(self.dumps), self.batchsizes(1));
             obj.save_myself(self, true);
         end
@@ -132,7 +138,7 @@ classdef INFGMN_series < handle
             if len_dumps == uptodate, return; end
             fprintf(' step/comb.:  step time  | estimated remain time\n');
             sumsteptime = sum([self.dumps.cputime], 'omitnan');
-            next_save = cputime + 120;
+            next_save = cputime + 2*60;
             rng(0);
             for ii = randperm(len_dumps)
                 if ~isnan(self.dumps(ii).cputime)
@@ -142,7 +148,7 @@ classdef INFGMN_series < handle
                     saveref = cputime;
                     obj.save_myself(self, true);
                     savetime = cputime - saveref;
-                    next_save = cputime + 120 + savetime * 20;
+                    next_save = cputime + 5*60 + savetime * 20;
                 end
                 timeref = cputime;
                 err_msg = '';
@@ -224,6 +230,9 @@ classdef INFGMN_series < handle
         end
         
         function dumps_ii = step(self, dumps_ii)
+            if ~isfield(self, 'Smerge')
+                self.Smerge = 0.7;
+            end
             gmm = INFGMN(minmaxDS(self.DS), 'normalize', self.normalize, ...
                 'delta', dumps_ii.delta, 'tau',  dumps_ii.tau, ...
                 'tmax',  dumps_ii.tmax, 'spmin', dumps_ii.spmin );
@@ -235,15 +244,15 @@ classdef INFGMN_series < handle
                 't', cell(1, n_batches), ...
                 'NCs', [], ...
                 'expected_output', NaN, ...
-                'mamdani_output', NaN, 'mamdani_err', NaN, ...
-                'sugeno_output', NaN, 'sugeno_err', NaN, ...
+                'mamdani_err', NaN, ...
+                'sugeno_err', NaN, ...
                 'cputime', NaN, ...
                 'fis', NaN );
             if warm_up
                 [gmm, warmup_NCs] = gmm.train(self.DS(1:warm_up, :));
             end
             gmm.setMaxFoCSize(self.maxFoCSize);
-            gmm.setSMerge(dumps_ii.Smerge);
+            gmm.setSMerge(self.Smerge);
             for ii = 1:n_batches
                 timeref = cputime;
                 tt = warm_up + ii * self.batchsizes(1);
@@ -255,7 +264,6 @@ classdef INFGMN_series < handle
                     gmm.setFisType(type{1});
                     output = gmm.recall(self.DS(tt+1, 1:end-1));
                     output = dataset2mat(output);
-                    stats(ii).([type{1} '_output']) = output;
                     stats(ii).([type{1} '_err']) = output - stats(ii).expected_output;
                 end
                 if  self.save_stats && ismember(tt, self.save_fis) ...
@@ -303,10 +311,11 @@ classdef INFGMN_series < handle
             particles = array2table( best{:,params} ...
                 + self.offset{:,:} .* permn([-1, 0, 1], width(self.offset)), ...
                 'VariableNames', params);
-            self.dumps = INFGMN_series.hola( particles, 1 );
+            self.dumps = INFGMN_series.hola( particles );
             fprintf('%i new particles with batchsize = %i\n', length(self.dumps), self.batchsizes(1));
-            obj.dumpname = [obj.dumpname '_SUB' ...
-                num2str(table2array(self.offset), '%+g') '.mat'];
+            [filepath,namedotbatch,ext] = fileparts(obj.dumpname);
+            name = namedotbatch; % [~,name,~] = fileparts(namedotbatch);
+            obj.dumpname = fullfile(filepath, [name '.batch' num2str(self.batchsizes(1)) ext]);
             obj.save_myself(self, false);
         end
         
@@ -341,6 +350,9 @@ classdef INFGMN_series < handle
             J(isnan(J)) = Inf;
             CV = [dumps.RMS_NC]' ./ [dumps.maxNC]';
             CV(isnan(CV)) = Inf;
+            if all(isinf(CV))
+                error('There is no good dump');
+            end
 %             CV([dumps.progress] < 1) = Inf;
             JCV = table(J, CV, 'VariableNames', {'J', 'CV'});
         end
