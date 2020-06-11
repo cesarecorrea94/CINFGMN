@@ -7,7 +7,7 @@ classdef INFGMN < handle
         delta;
         tau;
         spmin;
-        tmax;
+        tmax    (1,1) {mustBeInteger};
         uniform;
         normalize;
         regValue;

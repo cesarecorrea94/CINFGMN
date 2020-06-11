@@ -9,7 +9,7 @@ classdef INFGMN_FoC < handle
     
     properties
         Sage    (1,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(Sage,1)} = 1;
-        Smerge  (1,1) {mustBeReal, mustBePositive, mustBeLessThan(Smerge,1)} = 0.4;
+        Smerge  (1,1) {mustBeReal, mustBePositive, mustBeLessThan(Smerge,1)} = 0.5;
         vmax    (1,1) {mustBeReal, mustBePositive, mustBeLessThan(vmax,1)} = 0.8;
         maxFoCSize  (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 7;
 %         vweightexp  (1,1) {mustBeReal} = 0;
