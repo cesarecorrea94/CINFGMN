@@ -1,0 +1,18 @@
+http://openmv.net/info/distillation-tower
+
+	Description:
+Snapshot measurements on 27 variables from a distillation column; measured over 2.5 years.
+
+	Data source:
+From an industrial source; variable names have been coded. e.g. Temp1 is a temperature, but we cannot disclose where it is measured on the column. 
+* Temperatures are in Fahrenheit
+* Pressures are measured in bars
+* FlowC1 in units of MSCFD
+* FlowC3 and FlowC4 are in units of MBPD
+* Temp11 = Temp3 - Temp9 = the temperature increase of the stream leaving the column and returning back, after passing through the reboiler
+* InvTemp tags are 1000/temperature, therefore with units of inverted Fahrenheit
+* The last column, VapourPressure, is a quality variable measured in the laboratory. The other snapshot measurements in the row correspond to the process conditions when the sample was taken. 
+
+	Data shape:
+253 rows and 27 columns
+
