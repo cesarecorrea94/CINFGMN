@@ -13,9 +13,9 @@ classdef INFGMN_FoC < handle
         vmax    (1,1) {mustBeReal, mustBePositive, mustBeLessThan(vmax,1)} = 0.8;
         maxFoCSize  (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 7;
 %         vweightexp  (1,1) {mustBeReal} = 0;
-        mergedIDXs  (:,1) cell = cell(0,1); %{mustBeInteger, mustBePositive};
-        mergedSim   (:,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(mergedSim,1)} = zeros(0,1);
-        mergedMFs   (:,2) {mustBeReal} = zeros(0,2);
+        mergedIDXs      (:,1) cell = cell(0,1); %{mustBeInteger, mustBePositive};
+        mergedLog2Sim   (:,1) {mustBeReal, mustBeNonpositive} = zeros(0,1);
+        mergedMFs       (:,2) {mustBeReal} = zeros(0,2);
     end
     
     methods
@@ -31,7 +31,7 @@ classdef INFGMN_FoC < handle
         end
         
         function sim = FoCSim(self)
-            sim = prod(self.mergedSim) ^ (1/ length(vertcat(self.mergedIDXs{:})) );
+            sim = 2 ^ sum(self.mergedLog2Sim);
         end
         
         function len = FoCSize(self)
@@ -61,7 +61,7 @@ classdef INFGMN_FoC < handle
                 end
             end
             self.updateAllMergedMFs(components);
-            self.updateAllMergedSim(components);
+            self.updateAllMergedLog2Sim(components);
             self.Sage = self.aging();
             if thereIsANewComponent
                 if self.aging() < self.Smerge
@@ -77,7 +77,7 @@ classdef INFGMN_FoC < handle
         end
         
         function age = aging(self)
-            age = sqrt(min(self.Sage, self.Smerge)) * self.FoCSim();
+            age = sqrt(min(self.Sage, self.Smerge)) * self.FoCSim(); % ###
         end
         
         function purge(self, idx)
@@ -110,13 +110,13 @@ classdef INFGMN_FoC < handle
                     idxNewMergedIDX = i_merged;
                     self.mergedIDXs{idxNewMergedIDX}(end+1,1) = idxNewMF;
                     self.updateIdxMergedMFs(components, idxNewMergedIDX);
-                    self.updateIdxMergedSim(components, idxNewMergedIDX);
+                    self.updateIdxMergedLog2Sim(components, idxNewMergedIDX);
                 elseif i_merged > 1 && ...
                         newMF(self.I_MU) <= max(components.MF(self.mergedIDXs{i_merged-1}, self.I_MU))
                     idxNewMergedIDX = i_merged-1;
                     self.mergedIDXs{idxNewMergedIDX}(end+1,1) = idxNewMF;
                     self.updateIdxMergedMFs(components, idxNewMergedIDX);
-                    self.updateIdxMergedSim(components, idxNewMergedIDX);
+                    self.updateIdxMergedLog2Sim(components, idxNewMergedIDX);
                 else % it is between
                     self.putNewMergedIDXAt({idxNewMF}, i_merged, components);
                     self.tryMergeMFs(components);
@@ -129,30 +129,30 @@ classdef INFGMN_FoC < handle
             if self.FoCSize() == 1
                 return;
             end
-            simOnMerge = zeros(length(self.mergedIDXs)-1, 1);
-            for ii = 1:length(simOnMerge) % para cada par de componentes vizinhos
-                simOnMerge(ii) = self.similarIdx([ii, ii+1], components);
+            log2SimOnMerge = zeros(length(self.mergedIDXs)-1, 1);
+            for ii = 1:length(log2SimOnMerge) % para cada par de componentes vizinhos
+                log2SimOnMerge(ii) = self.log2SimilarityOnMergeIdx([ii, ii+1], components);
             end
-            simImprov = simOnMerge ./ (self.mergedSim(1:end-1) .* self.mergedSim(2:end));
-            [improv, idxMerged] = max(simImprov);
-            while ~isempty(simImprov) && ( improv >= 1 || self.FoCSize() > self.maxFoCSize )
+            log2SimImprov = log2SimOnMerge - (self.mergedLog2Sim(1:end-1) + self.mergedLog2Sim(2:end));
+            [improv, idxMerged] = max(log2SimImprov);
+            while ~isempty(log2SimImprov) && ( improv >= 0 || self.FoCSize() > self.maxFoCSize )
                 self.mergedIDXs{idxMerged} = [self.mergedIDXs{idxMerged}; self.mergedIDXs{idxMerged+1}];
                 self.popMergedPropsAt(idxMerged+1);
                 self.updateIdxMergedMFs(components, idxMerged);
-                self.mergedSim(idxMerged) = simOnMerge(idxMerged);
-                simOnMerge(idxMerged) = [];
-                simImprov(idxMerged) = [];
+                self.mergedLog2Sim(idxMerged) = log2SimOnMerge(idxMerged);
+                log2SimOnMerge(idxMerged) = [];
+                log2SimImprov(idxMerged) = [];
                 if idxMerged > 1
-                    simOnMerge(idxMerged-1) = self.similarIdx([idxMerged-1, idxMerged], components);
-                    simImprov(idxMerged-1) = simOnMerge(idxMerged-1) ...
-                        / (self.mergedSim(idxMerged-1) * self.mergedSim(idxMerged));
+                    log2SimOnMerge(idxMerged-1) = self.log2SimilarityOnMergeIdx([idxMerged-1, idxMerged], components);
+                    log2SimImprov(idxMerged-1) = log2SimOnMerge(idxMerged-1) ...
+                        - (self.mergedLog2Sim(idxMerged-1) + self.mergedLog2Sim(idxMerged));
                 end
                 if idxMerged < length(self.mergedIDXs)
-                    simOnMerge(idxMerged) = self.similarIdx([idxMerged, idxMerged+1], components);
-                    simImprov(idxMerged) = simOnMerge(idxMerged) ...
-                        / (self.mergedSim(idxMerged) * self.mergedSim(idxMerged+1));
+                    log2SimOnMerge(idxMerged) = self.log2SimilarityOnMergeIdx([idxMerged, idxMerged+1], components);
+                    log2SimImprov(idxMerged) = log2SimOnMerge(idxMerged) ...
+                        - (self.mergedLog2Sim(idxMerged) + self.mergedLog2Sim(idxMerged+1));
                 end
-                [improv, idxMerged] = max(simImprov);
+                [improv, idxMerged] = max(log2SimImprov);
             end
         end
         
@@ -160,7 +160,7 @@ classdef INFGMN_FoC < handle
             [~, sortedMu] = sort(components.MF(:, self.I_MU));
             self.mergedIDXs = num2cell(sortedMu);
             self.updateAllMergedMFs(components);
-            self.updateAllMergedSim(components);
+            self.updateAllMergedLog2Sim(components);
             self.tryMergeMFs(components);
             self.Sage = 1;
         end
@@ -169,28 +169,28 @@ classdef INFGMN_FoC < handle
             self.mergedIDXs = [ self.mergedIDXs(1:idxNewMergedIDX-1); ...
                 newMergedIDX;   self.mergedIDXs(idxNewMergedIDX:end) ];
             self.mergedMFs(idxNewMergedIDX+1:end+1, :) = self.mergedMFs(idxNewMergedIDX:end, :);
-            self.mergedSim(idxNewMergedIDX+1:end+1, :) = self.mergedSim(idxNewMergedIDX:end, :);
+            self.mergedLog2Sim(idxNewMergedIDX+1:end+1, :) = self.mergedLog2Sim(idxNewMergedIDX:end, :);
             adjIdxNewMergedIDX = max(idxNewMergedIDX-1, 1):min(self.FoCSize(), idxNewMergedIDX+1);
             self.updateIdxMergedMFs(components, adjIdxNewMergedIDX);
-            self.updateIdxMergedSim(components, adjIdxNewMergedIDX);
+            self.updateIdxMergedLog2Sim(components, adjIdxNewMergedIDX);
         end
         
         function popMergedPropsAt(self, idxMerged)
             self.mergedIDXs(idxMerged) = [];
-            self.mergedSim(idxMerged) = [];
+            self.mergedLog2Sim(idxMerged) = [];
             self.mergedMFs(idxMerged,:) = [];
         end
         
-        function updateAllMergedSim(self, components)
-            self.mergedSim = zeros(size(self.mergedMFs,1), 1);
-            self.updateIdxMergedSim(components, 1:size(self.mergedMFs,1));
+        function updateAllMergedLog2Sim(self, components)
+            self.mergedLog2Sim = zeros(size(self.mergedMFs,1), 1);
+            self.updateIdxMergedLog2Sim(components, 1:size(self.mergedMFs,1));
         end
         
-        function updateIdxMergedSim(self, components, idxMergeds)
+        function updateIdxMergedLog2Sim(self, components, idxMergeds)
             for idx = idxMergeds
                 sim = self.similarity( self.mergedMFs(idx,:), ...
                     components.MF(self.mergedIDXs{idx}, :) );
-                self.mergedSim(idx) = prod(sim);
+                self.mergedLog2Sim(idx) = sum(weight .* log2(sim) ./ sim);
             end
         end
         
@@ -215,7 +215,7 @@ classdef INFGMN_FoC < handle
             end
         end
         
-        function [sim, merged] = similarIdx(self, idxMergeds, components)
+        function [log2sim, merged] = log2SimilarityOnMergeIdx(self, idxMergeds, components)
             idxs = vertcat(self.mergedIDXs{idxMergeds});
             minXroot = min(components.alphaSupport( idxs, 1 ));
             if min(idxMergeds) > 1
@@ -229,7 +229,7 @@ classdef INFGMN_FoC < handle
             end
             merged = INFGMN_FoC.mergeAlphaSupport( [ minXroot maxXroot ] );
             sim = self.similarity( merged, components.MF(idxs, :) );
-            sim = prod(sim);
+            log2sim = sum(weight .* log2(sim) ./ sim);
         end
         
         function sim = similarity(self, mergedOne, subMFs)
