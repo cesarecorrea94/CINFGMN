@@ -8,8 +8,9 @@ classdef INFGMN_FoC < handle
     end
     
     properties
-        Sage    (1,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(Sage,1)} = 1;
-        Smerge  (1,1) {mustBeReal, mustBePositive, mustBeLessThan(Smerge,1)} = 0.5;
+        log2Sage    (1,1) {mustBeReal, mustBeNonpositive} = 0;
+        log2Smerge  (1,1) {mustBeReal, mustBeNonpositive} = log2(0.85);
+        log2Sdeath  (1,1) {mustBeReal, mustBeNonpositive} = log2(0.7);
         vmax    (1,1) {mustBeReal, mustBePositive, mustBeLessThan(vmax,1)} = 0.8;
         maxFoCSize  (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 7;
 %         vweightexp  (1,1) {mustBeReal} = 0;
@@ -20,18 +21,19 @@ classdef INFGMN_FoC < handle
     
     methods
         
-        function self = INFGMN_FoC(maxFoCSize, Smerge, vmax, compMFs)
+        function self = INFGMN_FoC(maxFoCSize, Smerge, Sdeath, vmax, compMFs, weights)
             self.maxFoCSize = maxFoCSize;
-            self.Smerge = Smerge;
+            self.log2Smerge = log2(Smerge) * (1 / Smerge);
+            self.log2Sdeath = log2(Sdeath) * (1 / Sdeath);
             self.vmax = vmax;
 %             vmerge = (1+vmax)/2;
 %             self.vweightexp = log(Smerge)/log(vmerge)-1;
-            components = self.calcAlphaSupport(compMFs);
+            components = self.calcAlphaSupport(compMFs, weights);
             self.renewFoC(components);
         end
         
-        function sim = FoCSim(self)
-            sim = 2 ^ sum(self.mergedLog2Sim);
+        function log2Sim = log2FoCSim(self)
+            log2Sim = sum(self.mergedLog2Sim);
         end
         
         function len = FoCSize(self)
@@ -42,8 +44,8 @@ classdef INFGMN_FoC < handle
     
     methods
         
-        function updateSystem(self, compMFs, thereIsANewComponent)
-            components = INFGMN_FoC.calcAlphaSupport(compMFs);
+        function updateSystem(self, compMFs, weights, thereIsANewComponent)
+            components = INFGMN_FoC.calcAlphaSupport(compMFs, weights);
             minAfter = Inf;
             for i_merged = length(self.mergedIDXs)-1:-1:1
                 minAfter = min(minAfter, min(components.MF(self.mergedIDXs{i_merged+1}, self.I_MU)));
@@ -62,22 +64,22 @@ classdef INFGMN_FoC < handle
             end
             self.updateAllMergedMFs(components);
             self.updateAllMergedLog2Sim(components);
-            self.Sage = self.aging();
+            self.log2Sage = self.log2Aging();
             if thereIsANewComponent
-                if self.aging() < self.Smerge
+                if self.log2Aging() < self.log2Sdeath
                     self.renewFoC(components);
                     return;
                 end
                 self.fitNewComponent(components);
-                self.Sage = self.aging(); % double-aging
+                self.log2Sage = self.log2Aging(); % double-aging
             end
-            if self.Sage < self.Smerge
+            if self.log2Sage < self.log2Sdeath
                 self.renewFoC(components);
             end
         end
         
-        function age = aging(self)
-            age = sqrt(min(self.Sage, self.Smerge)) * self.FoCSim(); % ###
+        function log2SAge = log2Aging(self)
+            log2SAge = self.log2Sage/2 + min(self.log2FoCSim(), self.log2Sdeath/2);
         end
         
         function purge(self, idx)
@@ -135,7 +137,9 @@ classdef INFGMN_FoC < handle
             end
             log2SimImprov = log2SimOnMerge - (self.mergedLog2Sim(1:end-1) + self.mergedLog2Sim(2:end));
             [improv, idxMerged] = max(log2SimImprov);
-            while ~isempty(log2SimImprov) && ( improv >= 0 || self.FoCSize() > self.maxFoCSize )
+            while ~isempty(log2SimImprov) && ...
+                    (   improv >= 0 || self.FoCSize() > self.maxFoCSize ...
+                    ||  self.log2FoCSim() + improv > self.log2Smerge )
                 self.mergedIDXs{idxMerged} = [self.mergedIDXs{idxMerged}; self.mergedIDXs{idxMerged+1}];
                 self.popMergedPropsAt(idxMerged+1);
                 self.updateIdxMergedMFs(components, idxMerged);
@@ -162,7 +166,7 @@ classdef INFGMN_FoC < handle
             self.updateAllMergedMFs(components);
             self.updateAllMergedLog2Sim(components);
             self.tryMergeMFs(components);
-            self.Sage = 1;
+            self.log2Sage = 0;
         end
         
         function putNewMergedIDXAt(self, newMergedIDX, idxNewMergedIDX, components)
@@ -190,6 +194,7 @@ classdef INFGMN_FoC < handle
             for idx = idxMergeds
                 sim = self.similarity( self.mergedMFs(idx,:), ...
                     components.MF(self.mergedIDXs{idx}, :) );
+                weight = components.weights(self.mergedIDXs{idx});
                 self.mergedLog2Sim(idx) = sum(weight .* log2(sim) ./ sim);
             end
         end
@@ -229,6 +234,7 @@ classdef INFGMN_FoC < handle
             end
             merged = INFGMN_FoC.mergeAlphaSupport( [ minXroot maxXroot ] );
             sim = self.similarity( merged, components.MF(idxs, :) );
+            weight = components.weights(idxs);
             log2sim = sum(weight .* log2(sim) ./ sim);
         end
         
@@ -281,8 +287,9 @@ classdef INFGMN_FoC < handle
     
     methods(Static, Access = private)
         
-        function components = calcAlphaSupport(compMFs)
+        function components = calcAlphaSupport(compMFs, weights)
             components.MF = compMFs;
+            components.weights = weights(:);
             aux = components.MF(:, INFGMN_FoC.I_SPD) * INFGMN_FoC.ALPHA_AUX;
             components.alphaSupport = [ ... 
                 ( components.MF(:, INFGMN_FoC.I_MU) - aux ), ...
