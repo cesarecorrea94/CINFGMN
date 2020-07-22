@@ -85,6 +85,8 @@ classdef INFGMN_series < handle
         function obj = create_nonseries(obj, DS, ...
                 fis_types, save_fis, doMerge, maxFoCSize, ...
                 normalize, paramstruct, offset)
+            self.recallTest = true;
+            self.Smerge = 0.9;
             self.DS = DS;
             self.fis_types = fis_types;
             self.save_fis = save_fis;
@@ -170,7 +172,10 @@ classdef INFGMN_series < handle
                 train = vertcat(cellDS{comb_train});
                 rng(0);
                 train = train(randperm(size(train,1)), :);
-                test  = vertcat(cellDS{comb_test(i_comb,:)});
+                if self.recallTest
+                    test  = vertcat(cellDS{comb_test(i_comb,:)});
+                else,test = train;
+                end
                 expected_output = dataset2mat(test(:, end));
                 % %
                 gmm = INFGMN_series.create_INFGMN(self, dumps_ii);
@@ -178,7 +183,7 @@ classdef INFGMN_series < handle
                 gmm.train( train );
                 % gmm.train( train );
                 gmm.setMergeStats(self.doMerge, ...
-                    0.9, 0.8, self.maxFoCSize);
+                    self.Smerge, 0.8, self.maxFoCSize);
                 for type = self.fis_types
                     gmm.setFisType(type{1});
                     output = gmm.recall( test(:, 1:end-1) );
@@ -218,8 +223,8 @@ classdef INFGMN_series < handle
             if warm_up
                 [gmm, warmup_NCs] = gmm.train(self.DS(1:warm_up, :));
             end
-            gmm.setMergeStats(self.Smerge < 1, ...
-                sqrt(self.Smerge), self.Smerge, self.maxFoCSize);
+            gmm.setMergeStats(self.doMerge, ...
+                self.Smerge, self.Sdeath, self.maxFoCSize);
             for ii = 1:n_batches
                 timeref = cputime;
                 tt = warm_up + ii * self.batchsize;
