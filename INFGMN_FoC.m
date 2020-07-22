@@ -23,8 +23,8 @@ classdef INFGMN_FoC < handle
         
         function self = INFGMN_FoC(maxFoCSize, Smerge, Sdeath, vmax, compMFs, weights)
             self.maxFoCSize = maxFoCSize;
-            self.log2Smerge = log2(Smerge) * (1 / Smerge);
-            self.log2Sdeath = log2(Sdeath) * (1 / Sdeath);
+            self.log2Smerge = log2(Smerge)/Smerge^2;
+            self.log2Sdeath = log2(Sdeath)/Sdeath^2;
             self.vmax = vmax;
 %             vmerge = (1+vmax)/2;
 %             self.vweightexp = log(Smerge)/log(vmerge)-1;
@@ -195,7 +195,7 @@ classdef INFGMN_FoC < handle
                 sim = self.similarity( self.mergedMFs(idx,:), ...
                     components.MF(self.mergedIDXs{idx}, :) );
                 weight = components.weights(self.mergedIDXs{idx});
-                self.mergedLog2Sim(idx) = sum(weight .* log2(sim) ./ sim);
+                self.mergedLog2Sim(idx) = sum(weight .* log2(sim) ./ sim.^2);
             end
         end
         
@@ -235,7 +235,7 @@ classdef INFGMN_FoC < handle
             merged = INFGMN_FoC.mergeAlphaSupport( [ minXroot maxXroot ] );
             sim = self.similarity( merged, components.MF(idxs, :) );
             weight = components.weights(idxs);
-            log2sim = sum(weight .* log2(sim) ./ sim);
+            log2sim = sum(weight .* log2(sim) ./ sim.^2);
         end
         
         function sim = similarity(self, mergedOne, subMFs)
