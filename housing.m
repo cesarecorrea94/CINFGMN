@@ -1,16 +1,16 @@
 warning off;
-dumpname = 'dumps/concreto/29-Jun-2020 both.mat';
+dumpname = 'dumps/housing/29-Jun-2020 both.mat';
 %%
 if ~exist('dumpseries', 'var')
     if exist('dumpname', 'var')
         dumpseries = INFGMN_series(dumpname);
     else
-        DS = concrete_DS();
+        DS = housing_DS();
         fis_types = {'sugeno'};%{'mamdani', 'sugeno'};
         save_fis = false;
         doMerge = true;
-        maxFoCSize = 5;
-        normalize = true;%default
+        maxFoCSize = 7;
+        normalize = true; % default
         
         halfTrain = 0.6 * length(DS) / 2;
         offset = struct( ...
@@ -21,8 +21,8 @@ if ~exist('dumpseries', 'var')
         paramstruct = struct( ...
             'log2delta',   -(offset.log2delta   :offset.log2delta:  5), ...
             'log2tau',     -(offset.log2tau     :offset.log2tau:    25), ...
-            'log2tmax',     [log2(halfTrain),  99], ...(offset.log2tmax +  5   :offset.log2tmax:   9   -offset.log2tmax), ...
-            'log2maxNC',     log2(halfTrain)-1.5    ...(offset.log2maxNC+  5   :offset.log2maxNC:  9   -offset.log2maxNC) ...
+            'log2tmax',     [log2(halfTrain),  99], ...(log2(32)   :offset.log2tmax:   log2(128)), ...
+            'log2maxNC',     log2(halfTrain)-1      ...(log2(16)   :offset.log2maxNC:  log2(64)) ...
         );
         comb = ...
             length(paramstruct.log2delta) * ...
@@ -31,7 +31,7 @@ if ~exist('dumpseries', 'var')
             length(paramstruct.log2maxNC);
         fprintf('%i comb in %s\n', comb, duration(0,0, 2*comb));
 
-        dumpseries = INFGMN_series('concreto');
+        dumpseries = INFGMN_series('housing');
         dumpseries.create_nonseries(DS, ...
             fis_types, save_fis, doMerge, maxFoCSize, ...
             normalize, paramstruct, offset);
