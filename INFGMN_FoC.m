@@ -8,12 +8,12 @@ classdef INFGMN_FoC < handle
     end
     
     properties
-        log2Sage    (1,1) {mustBeReal, mustBeNonpositive} = 0;
+        bestSim     (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(bestSim,1)} = 1;
+        Sage        (1,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(Sage,1)} = 1;
+        Sdeath      (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(Sdeath,1)} = 0.9;
         log2Smerge  (1,1) {mustBeReal, mustBeNonpositive} = log2(0.85);
-        log2Sdeath  (1,1) {mustBeReal, mustBeNonpositive} = log2(0.7);
-        vmax    (1,1) {mustBeReal, mustBePositive, mustBeLessThan(vmax,1)} = 0.8;
         maxFoCSize  (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 7;
-%         vweightexp  (1,1) {mustBeReal} = 0;
+        vmax        (1,1) {mustBeReal, mustBePositive, mustBeLessThan(vmax,1)} = 0.8;
         mergedIDXs      (:,1) cell = cell(0,1); %{mustBeInteger, mustBePositive};
         mergedLog2Sim   (:,1) {mustBeReal, mustBeNonpositive} = zeros(0,1);
         mergedMFs       (:,2) {mustBeReal} = zeros(0,2);
@@ -24,16 +24,18 @@ classdef INFGMN_FoC < handle
         function self = INFGMN_FoC(maxFoCSize, Smerge, Sdeath, vmax, compMFs, weights)
             self.maxFoCSize = maxFoCSize;
             self.log2Smerge = log2(Smerge)/Smerge^2;
-            self.log2Sdeath = log2(Sdeath)/Sdeath^2;
+            self.Sdeath = Sdeath;
             self.vmax = vmax;
-%             vmerge = (1+vmax)/2;
-%             self.vweightexp = log(Smerge)/log(vmerge)-1;
             components = self.calcAlphaSupport(compMFs, weights);
             self.renewFoC(components);
         end
         
         function log2Sim = log2FoCSim(self)
             log2Sim = sum(self.mergedLog2Sim);
+        end
+        
+        function sim = FoCSim(self)
+            sim = 2^self.log2FoCSim();
         end
         
         function len = FoCSize(self)
@@ -64,22 +66,23 @@ classdef INFGMN_FoC < handle
             end
             self.updateAllMergedMFs(components);
             self.updateAllMergedLog2Sim(components);
-            self.log2Sage = self.log2Aging();
+            self.Sage = self.aging();
             if thereIsANewComponent
-                if self.log2Aging() < self.log2Sdeath
+                if self.aging() < self.Sdeath
                     self.renewFoC(components);
                     return;
                 end
                 self.fitNewComponent(components);
-                self.log2Sage = self.log2Aging(); % double-aging
+                self.Sage = self.aging(); % double-aging
             end
-            if self.log2Sage < self.log2Sdeath
+            if self.Sage < self.Sdeath
                 self.renewFoC(components);
             end
+            self.bestSim = max(self.bestSim, self.FoCSim());
         end
         
-        function log2SAge = log2Aging(self)
-            log2SAge = self.log2Sage/2 + min(self.log2FoCSim(), self.log2Sdeath/2);
+        function newSAge = aging(self)
+            newSAge = self.Sage * min(1, self.FoCSim() / self.bestSim);
         end
         
         function purge(self, idx)
@@ -166,7 +169,8 @@ classdef INFGMN_FoC < handle
             self.updateAllMergedMFs(components);
             self.updateAllMergedLog2Sim(components);
             self.tryMergeMFs(components);
-            self.log2Sage = 0;
+            self.Sage = 1;
+            self.bestSim = self.FoCSim();
         end
         
         function putNewMergedIDXAt(self, newMergedIDX, idxNewMergedIDX, components)
@@ -265,23 +269,6 @@ classdef INFGMN_FoC < handle
             sim(-1e-15 < sim & sim < lim_inf) = lim_inf;
             assert(all(sim > 0));
         end
-        
-%         function [sim, v] = similarity(self, A, B)
-%             v = self.possibility(A, B);
-%             vWeight = v^self.vweightexp;
-%             if vWeight * v >= self.Smerge
-%                 sim = v;
-%             else
-%                 spdmin = min(A(self.I_SPD), B(self.I_SPD));
-%                 beta = 2 * spdmin / (A(self.I_SPD) + B(self.I_SPD));
-%                 sqrtneglnv = sqrt(-log(v));
-%                 psi = beta ...
-%                     + (1 - beta) * erf( (1/(1-beta)) * sqrtneglnv ) ...
-%                     - erf( sqrtneglnv );
-%                 sim = vWeight * v ...
-%                     + (1 - vWeight) * (psi / (2 - psi));
-%             end
-%         end
         
     end
     
