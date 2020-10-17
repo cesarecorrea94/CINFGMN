@@ -1,55 +1,73 @@
 
-function myprint(prefixname, dumps)
-    fig = figure;
-    for ii=1:length(dumps)
-        myprintstep(fig, [prefixname '(' num2str(ii) ')'], dumps(ii));
+function myprint(self, topN, folder)
+    for ii=1:topN
+        subfolder = [folder '/' num2str(ii)];
+        mkdir(subfolder);
+        myprintstep(subfolder, self.dumps(ii));
     end
-    close(fig);
 end
 
-function myprintstep(fig, prefixname, dump)
-        %% Number of rules
-    %     tiledlayout(2,1)
-    %     ax1 = nexttile;
-        ax1 = newaxis(fig);
-    %     hold(ax1, 'on');
-        plot([dump.stats.NC]);
-        plotlabels(ax1, 'Time Instance t', 'Number of rules');
-        saveas(fig, [prefixname '_NC'], 'png');
-        %% RMSE
-    %     ax1 = nexttile;
-        ax1 = newaxis(fig);
-    %     hold(ax1, 'on');
-        err = zeros(length(dump.stats)/30,30);
-        fistype = {'mamdani', 'sugeno'};
-        fiscolor = {'b:', 'r--'};
-        for fis_i = 1:2
-            err(:) = [dump.stats.([fistype{fis_i} '_err'])];
-            err(:) = [0 err(1:end-1)];
-            plot((0:30).*100, [NaN movavg(err)], fiscolor{fis_i}, 'DisplayName', [fistype{fis_i} ' RMSE'], 'LineWidth', 1.2);
-%             plot([0 100:30*100], [NaN zmovavg(err)], fiscolor{fis_i}, 'DisplayName', [fistype{fis_i} ' RMSEz'], 'LineWidth', 1.2);
-        end
-        legend;
-        plotlabels(ax1, 'Time Instance t', 'RMSE');
-        saveas(fig, [prefixname  '_RMSE'], 'png');
-    %     saveas(fig, [prefixname '_NC_RMSE'], 'png');
+function myprintstep(subfolder, dump)
+        fig = figure('Position', [0,0, 4*50*4, 50*4]);
+        position = [0.1300, 0.1100+0.060, 0.7750, 0.8150-0.030];
         %% output
-        range = length(dump.stats)/15;
-    %     tiledlayout(2,1)
-        for center = [length(dump.stats)/3, length(dump.stats)*2/3]
-    %         ax1 = nexttile;
+        range = length(dump.stats)*2*200/3000;
+        for center = length(dump.stats)*[1000, 2000]/3000
             ax1 = newaxis(fig);
-    %         hold(ax1, 'on');
+            ax1.Position = position;
+            myticks = -1.5:0.5:2.5;
+            yticks(myticks);
+            ylim(ax1, minmax(myticks));
             x = center-range/2:center+range/2;
-            stats = dump.stats(x);
-            plot(x, [stats.expected_output],  'k-', 'DisplayName', 'actual');
-            plot(x, [stats. mamdani_output], 'b-.', 'DisplayName', 'ML output', 'LineWidth', 1.2);
-            plot(x, [stats.  sugeno_output], 'r--', 'DisplayName', 'TS output', 'LineWidth', 1.2);
-            legend;
-            plotlabels(ax1, 'Time Instance t', 'y(t+1)');
-            saveas(fig, [prefixname '_output' num2str(center)], 'png');
+            expected_output = [dump.stats(x).expected_output];
+%             mamdani= expected_output + [dump.stats(x).mamdani_err];
+            sugeno = expected_output + [dump.stats(x). sugeno_err];
+            plot(x, expected_output,  '-', 'Color', '#777', 'DisplayName', 'saída real', 'LineWidth', 1);
+%             plot(x, mamdani, 'b-.', 'DisplayName', 'saída ML', 'LineWidth', 1.5);
+%             plot(x,  sugeno, 'r--', 'DisplayName', 'saída TS', 'LineWidth', 1.5);
+            plot(x,  sugeno, 'k-',  'DisplayName', 'saída TS', 'LineWidth', 1.5);
+            hid = plot([center center], [-1.5 2.5],  'r-', 'LineWidth', 1);
+            set(get(get(hid,'Annotation'),'LegendInformation'),'IconDisplayStyle','off');
+            if center == 1000
+                legend('Location', 'southeast');
+            else,legend('Location', 'southwest');
+            end
+            plotlabels(ax1, 'Instância de Tempo t', 'y(t+1)');
+            saveas(fig, [subfolder '/output_t' num2str(center)], 'png');
         end
-    %     saveas(fig, [prefixname '_outputs'], 'png');
+        %% Number of rules
+        ax1 = newaxis(fig);
+        ax1.Position = position;
+        xticks(0:200:3000);
+        NCs = [dump.stats.NCs];
+        plot(NCs, 'k-', 'LineWidth', 1);
+        plot([1000 1000 nan 2000 2000], [0 ceil(max(NCs)/5)*5 nan 0 ceil(max(NCs)/5)*5],  'r-', 'LineWidth', 1);
+        plotlabels(ax1, 'Instância de Tempo t', 'Número de regras');
+        saveas(fig, [subfolder '/NCs'], 'png');
+        %% RMSE
+        ax1 = newaxis(fig);
+        ax1.Position = position;
+        xticks(0:5:30);
+        myticks = 0:0.03:0.21;
+        yticks(myticks);
+        ylim(ax1, minmax(myticks));
+        err = zeros(length(dump.stats)/30,30);
+%         fistype = {'mamdani', 'sugeno'};
+%         fiscolor = {'b:', 'r--'};
+%         for fis_i = 1:2
+            err(:) = [dump.stats.sugeno_err];
+%             err(:) = [dump.stats.([fistype{fis_i} '_err'])];
+            err(:) = [0 err(1:end-1)];
+            hola = movavg(err);
+            plot((0:30), [NaN hola], 'k-', 'DisplayName', 'Erro de aprendizado online', 'LineWidth', 1);
+%             plot((0:30), [NaN hola], fiscolor{fis_i}, 'DisplayName', [fistype{fis_i} ' RMSE'], 'LineWidth', 1.5);
+%         end
+        hid = plot([10 10 nan 20 20], [minmax(myticks) nan minmax(myticks)],  'r-', 'LineWidth', 1);
+        set(get(get(hid,'Annotation'),'LegendInformation'),'IconDisplayStyle','off');
+        legend('Location', 'northwest');
+        plotlabels(ax1, 'Instância de Tempo t x 100', 'RMSE');
+        saveas(fig, [subfolder '/RMSE'], 'png');
+        close(fig);
 end
 
 function ret = movavg(err)
