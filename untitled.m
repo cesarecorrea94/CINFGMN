@@ -1,3 +1,34 @@
+
+self = dumpseries.myself();
+best = INFGMN_series.filter_best_params(self);
+self.dumps = INFGMN_series.hola(best);
+tmaxs = round(2.^[self.dumps.log2tmax]);
+self.dumps = self.dumps(tmaxs == 25);
+
+self.maxFoCSize = 9;
+self.Smerge = 0.7;
+self.batchsize = 100;
+dumpseries.save_myself(self, true);
+
+self = dumpseries.myself();
+self.doMerge = false;
+self.fis_types = {'mamdani', 'sugeno'};
+[self.dumps.cputime] = deal(nan);
+[self.dumps.stats] = deal([]);
+dumpseries.dumpname = [dumpseries.dumpname '_dont.mat'];
+dumpseries.save_myself(self, true);
+clear self ans;
+
+self = dumpseries.myself();
+self.dumps = self.dumps(1);
+self.save_fis = [400 1005 1010 1400 2400];
+self.fis_types = {'sugeno'};
+[self.dumps.cputime] = deal(nan);
+[self.dumps.stats] = deal([]);
+dumpseries.save_myself(self, true);
+clear self ans;
+%%
+
 % maxNCs = [20 35 50];
 % ndeltas = 5;
 % tab = table('Size', [length(maxNCs)*ndeltas 3], ...
