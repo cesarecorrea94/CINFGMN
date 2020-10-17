@@ -247,7 +247,7 @@ classdef INFGMN < handle
                     self.updateFisVar(didCreate);
                 end
                 NCs(i) = self.modelSize(); %debug%
-                if self.modelSize() >= 100
+                if self.modelSize() >= 50
                     error('INFGMN:Abortar', 'Too many components.');
                 end
             end
@@ -683,7 +683,14 @@ classdef INFGMN < handle
                             self.fis.input(i).range(2) = params(3) + 0.3;
                         end
                     end
-                    self.addInputMf(i, mu, spd, ['MF' num2str(j)])
+                    if self.doMerge
+                        muy = ones(1, length(self.varNames));
+                        muy(inputIndexes(i)) = double(mu);
+                        muy = mapminmax('reverse', muy', self.proportion)';
+                        self.addInputMf(i, mu, spd, ['MF' num2str(j) ' about ' num2str(muy(inputIndexes(i))) ])
+                    else
+                        self.addInputMf(i, mu, spd, ['MF' num2str(j)])
+                    end
                 end
             end
             for i = 1:length(outputIndexes)
@@ -725,8 +732,18 @@ classdef INFGMN < handle
                         CAngular = -invcovj(inputIndexes, o) / invcovj(o, o);
                         CLinear = muj(o) - muj(inputIndexes) * CAngular;
                         params = [CAngular' CLinear];
-                        self.fis = addmf(self.fis, 'output', i, ...
-                            ['MF' num2str(j)], self.outMfType, params);
+                        if self.doMerge
+                            funcstr = num2str(CLinear);
+                            for asd = 1:length(CAngular)
+                                funcstr = [funcstr ' ' num2str(CAngular(asd), '%+.5g') ...
+                                    '*' self.varNames{inputIndexes(asd)} ];
+                            end
+                            self.fis = addmf(self.fis, 'output', i, ...
+                                ['MF' num2str(j) ' ' funcstr], self.outMfType, params);
+                        else
+                            self.fis = addmf(self.fis, 'output', i, ...
+                                ['MF' num2str(j)], self.outMfType, params);
+                        end
                     end
                 end
             end
