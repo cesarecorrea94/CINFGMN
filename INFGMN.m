@@ -13,7 +13,6 @@ classdef INFGMN < handle
         regValue;
         ignoreCovariance = true;
         
-        vmax = 0.75;
         doMerge = false;
         Smerge = 1;
         sim2Refit = 1;
@@ -346,31 +345,7 @@ classdef INFGMN < handle
             self.means(self.nc,:) = x;
             if self.nc > 1
                 self.covs(:,:,self.nc) = diag(mean(self.jdiag(self.covs), 3));
-%                 covini = mean(self.jdiag(self.covs), 3);
-%                 violations = [zeros(2, length(x)); x; covini];
-%                 for d = 1:length(x)
-%                     for j = 1:self.nc-1
-%                         diffmeans = x(d) - self.means(j, d);
-%                         sumcovs = covini(d) + self.covs(d, d, j);
-%                         possibility = exp(-(diffmeans/sumcovs)^2);
-%                         if possibility > self.vmax && ...
-%                                 possibility > violations(1,d)
-%                             violations(:,d) = [...
-%                                 possibility; j; ...
-%                                 self.means(j, d); ...
-%                                 self.covs(d, d, j)];
-%                         end
-%                     end
-%                 end
-%                 if any(violations(2,:) ~= 0) && ...
-%                         length(unique(violations(2,:))) == 1
-%                     self.nc = self.nc -1;
-%                     return
-%                 end
-%                 self.means(self.nc,:) = violations(3,:);
-%                 self.covs(:,:,self.nc) = diag(violations(4,:));
             else
-%                 self.means(self.nc,:) = x;
                 self.covs(:,:,self.nc) = diag(self.sigma);
             end
             self.sps(1,self.nc) = 1;
@@ -719,8 +694,6 @@ classdef INFGMN < handle
                 end
                 for j = 1:self.nc
                     muj = self.means(j,:);
-%                     invcovj = pinv(sign(self.covs(:,:,j)) ...
-%                         .* abs(self.covs(:,:,j)) .^ self.spread);
                     invcovj = pinv( self.covs(:,:,j) );
                     for i = 1:length(outputIndexes)
                         o = outputIndexes(i);
@@ -850,48 +823,6 @@ classdef INFGMN < handle
             fprintf('%s', sprintf([repmat('%16.8f', 1, numCols) '\n'], self.post));
             if mod(length(self.post), 3) ~= 0; disp(' '); end
             disp('================================================');
-        end
-        
-        %%
-        function [sim, v] = similarity(self, A, B) % eFSM
-            v = self.possibility(A, B);
-            if v > (1+self.vmax)/2
-                sim = 1;
-            elseif v < 0.6 % sim < 0.2;
-                sim = 0;
-            else
-                sumAB = (A(1) + B(1))*sqrt(2) * 2*sqrt(-log(0.5));
-                % sumAB = (baseA+baseB)*1 /2 = sumbaseAB /2;
-                base = (A(2) - B(2)) + sumAB;
-                if base > 0
-                    % x = [ (x2-x1) *y + (y2x1-y1x2) ]/(y2-y1)
-                    % y = [(y2-y1)*(y4*x3-y3*x4) - (y4-y3)(y2*x1-y1*x2)] / [(x2-x1)*(y4-y3) - (y2-y1)*(x4-x3)]
-                    % y = [(A(mu)+A(base)/2) - (B(mu)-B(base)/2)] / [A(base)/2 + B(base)/2)]
-                    height = base / sumAB;
-                    intersect = base * height / 2;
-                    union = sumAB - intersect;
-                    sim = intersect / union;
-                else, sim = 0;
-                end
-            end
-        end
-
-%         function vFilter = hola()
-%             vFilter = exp(-erfinv( (1 - sim2merge)/(1 + sim2merge) )^2);
-%             sqrtlnvFilter = sqrt(-log(vFilter));
-%             betaFilter = 1 - sqrtlnvFilter / erfinv(0.01/(1 - betaFilter));
-%         end
-        
-        function rank = rankify(~, array)
-            [sorted, index] = sort(array);
-            rank = ones(1, length(array));
-            for ii = 2:length(sorted)
-                if sorted(ii) == sorted(ii-1)
-                    rank(ii) = rank(ii-1);
-                else, rank(ii) = rank(ii-1)+1;
-                end
-            end
-            rank(index) = rank;
         end
         
     end
