@@ -244,13 +244,6 @@ classdef FuzzyPartition < handle
             mudiff = abs(mergedOne(self.I_MU) - subMFs(:, self.I_MU));
             spdaux = [ mergedOne(self.I_SPD) + zeros(size(subMFs, 1), 1), ...
                 subMFs(:, self.I_SPD) ];
-%             spdaux = [ zeros(size(subMFs, 1), 1) subMFs(:, self.I_SPD) ];
-%             for ii = 1:size(subMFs,1)
-%                 spdaux(ii, 1) = min( ...
-%                     mergedOne(self.I_SPD), ...
-%                     A(self.I_MU) - A(self.I_SPD) * self.ALPHA_AUX ...
-%                     );
-%             end
             spdmin = min( spdaux, [], 2 );
             spdmax = max( spdaux, [], 2 );
             spddiff = spdmax - spdmin;
@@ -289,13 +282,6 @@ classdef FuzzyPartition < handle
             newSigma = max(newSigma, 1e-7);
             merged = [newSigma, newMu];
         end
-        
-%         function v = possibility(A, B)
-%             v = exp( ...
-%                 -( (A(FuzzyPartition.I_MU)  - B(FuzzyPartition.I_MU)) ...
-%                 /  (A(FuzzyPartition.I_SPD) + B(FuzzyPartition.I_SPD)) ...
-%                 )^2 /2 );
-%         end
         
     end
 end
