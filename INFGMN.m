@@ -16,9 +16,9 @@ classdef INFGMN < handle
         vmax = 0.75;
         doMerge = false;
         Smerge = 1;
-        Sdeath = 1;
-        maxFoCSize = 15;
-        FoCstruct;
+        sim2Refit = 1;
+        maxMFs = 15;
+        FPstruct;
         
         sps = [];
         st = [];
@@ -211,7 +211,7 @@ classdef INFGMN < handle
             %% Creates a component at the mean of the estimated ranges of the problem features.
             self.createComponent(mean(self.ranges))
             if self.doMerge
-                self.renewFoCs();
+                self.refitFP();
             end
         end
         
@@ -260,20 +260,15 @@ classdef INFGMN < handle
         function updateFisVar(self, thereIsANewComponent)
             for i_vn = 1:length(self.varNames) % para cada feature
                 compMFs = [ squeeze(self.covs(i_vn, i_vn, :)) .^ self.spread, self.means(:, i_vn) ];
-                self.FoCstruct.(self.varNames{i_vn}).updateSystem( compMFs, self.priors, thereIsANewComponent );
+                self.FPstruct.(self.varNames{i_vn}).updateSystem( compMFs, self.priors, thereIsANewComponent );
             end
         end
         
-        function renewFoCs(self)
-%             FoCfieldnames = fieldnames(self.FoCstruct);
-%             for i_field = 1:length(FoCfieldnames)
-%                 FoChandle = self.FoCstruct.(FoCfieldnames{i_field});
-%                 delete(FoChandle);
-%             end
+        function refitFP(self)
             for i_vn = 1:length(self.varNames) % para cada feature
                 compMFs = [ squeeze(self.covs(i_vn, i_vn, :)) .^ self.spread, self.means(:, i_vn) ];
-                self.FoCstruct.(self.varNames{i_vn}) = INFGMN_FoC( ...
-                    self.maxFoCSize, self.Smerge, self.Sdeath, self.vmax, compMFs, self.priors );
+                self.FPstruct.(self.varNames{i_vn}) = FuzzyPartition( ...
+                    self.maxMFs, self.Smerge, self.sim2Refit, compMFs, self.priors );
             end
         end
         
@@ -447,7 +442,7 @@ classdef INFGMN < handle
 
         function removeFromMerged(self, i_nc)
             for i_vn = 1:length(self.varNames)
-                self.FoCstruct.(self.varNames{i_vn}).purge(i_nc);
+                self.FPstruct.(self.varNames{i_vn}).purge(i_nc);
             end
         end
         
@@ -604,13 +599,13 @@ classdef INFGMN < handle
             end
         end
         
-        function setMergeStats(self, doMerge, newSmerge, newSdeath, newMaxFoCSize)
+        function setMergeStats(self, doMerge, newSmerge, newSim2Refit, newMaxMFs)
             self.doMerge = doMerge;
             self.Smerge = newSmerge;
-            self.Sdeath = newSdeath;
-            self.maxFoCSize = newMaxFoCSize;
+            self.sim2Refit = newSim2Refit;
+            self.maxMFs = newMaxMFs;
             if self.doMerge
-                self.renewFoCs();
+                self.refitFP();
             end
             self.needsFisUpdate = true;
         end
@@ -659,7 +654,7 @@ classdef INFGMN < handle
 %                 mus = self.dilatedMeansForVar(inputIndexes(i)); 
                 varName = self.varNames{inputIndexes(i)};
                 if  self.doMerge
-                    till = size(self.FoCstruct.(varName).mergedMFs, 1);
+                    till = size(self.FPstruct.(varName).mergedMFs, 1);
                 else
                     till = self.nc;
                     mus = self.means(:, inputIndexes(i));
@@ -669,8 +664,8 @@ classdef INFGMN < handle
                     varName, [range(1), range(2)]);
                 for j = 1:till
                     if self.doMerge
-                        spd = self.FoCstruct.(varName).mergedMFs(j, 1);
-                        mu  = self.FoCstruct.(varName).mergedMFs(j, 2);
+                        spd = self.FPstruct.(varName).mergedMFs(j, 1);
+                        mu  = self.FPstruct.(varName).mergedMFs(j, 2);
                     else
                         mu = mus(j);
                         spd = spreads(j);
@@ -759,8 +754,8 @@ classdef INFGMN < handle
             if self.doMerge
                 for inp = 1:length(self.fis.Inputs)
                     varName = self.varNames{inputIndexes(inp)};
-                    for i_mf = 1:length(self.FoCstruct.(varName).mergedIDXs)
-                        ruleList(self.FoCstruct.(varName).mergedIDXs{i_mf}, inp) = i_mf;
+                    for i_mf = 1:length(self.FPstruct.(varName).mergedIDXs)
+                        ruleList(self.FPstruct.(varName).mergedIDXs{i_mf}, inp) = i_mf;
                     end
                 end
                 [premisses,~,idxs] = unique(ruleList(:, 1:length(self.fis.Inputs)), 'rows');

@@ -1,8 +1,8 @@
-classdef INFGMN_FoC < handle
+classdef FuzzyPartition < handle
     
     properties(Constant)
         ALPHA = 0.5;
-        ALPHA_AUX = sqrt(-2 * log(INFGMN_FoC.ALPHA));
+        ALPHA_AUX = sqrt(-2 * log(FuzzyPartition.ALPHA));
         I_SPD = 1;
         I_MU = 2;
     end
@@ -10,35 +10,33 @@ classdef INFGMN_FoC < handle
     properties
         bestSim     (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(bestSim,1)} = 1;
         Sage        (1,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(Sage,1)} = 1;
-        Sdeath      (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(Sdeath,1)} = 0.9;
+        sim2Refit   (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(sim2Refit,1)} = 0.9;
         log2Smerge  (1,1) {mustBeReal, mustBeNonpositive} = log2(0.85);
-        maxFoCSize  (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 7;
-        vmax        (1,1) {mustBeReal, mustBePositive, mustBeLessThan(vmax,1)} = 0.8;
-        mergedIDXs      (:,1) cell = cell(0,1); %{mustBeInteger, mustBePositive};
-        mergedLog2Sim   (:,1) {mustBeReal, mustBeNonpositive} = zeros(0,1);
-        mergedMFs       (:,2) {mustBeReal} = zeros(0,2);
+        maxMFs      (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 7;
+        mergedIDXs  (:,1) cell = cell(0,1); % {mustBeInteger, mustBePositive};
+        mergedLgSim (:,1) {mustBeReal, mustBeNonpositive} = zeros(0,1);
+        mergedMFs   (:,2) {mustBeReal} = zeros(0,2);
     end
     
     methods
         
-        function self = INFGMN_FoC(maxFoCSize, Smerge, Sdeath, vmax, compMFs, weights)
-            self.maxFoCSize = maxFoCSize;
+        function self = FuzzyPartition(maxMFs, Smerge, sim2Refit, vmax, compMFs, weights)
+            self.maxMFs = maxMFs;
             self.log2Smerge = log2(Smerge)/Smerge^2;
-            self.Sdeath = Sdeath;
-            self.vmax = vmax;
+            self.sim2Refit = sim2Refit;
             components = self.calcAlphaSupport(compMFs, weights);
-            self.renewFoC(components);
+            self.refitPartition(components);
         end
         
-        function log2Sim = log2FoCSim(self)
-            log2Sim = sum(self.mergedLog2Sim);
+        function log2Sim = log2PartitionSim(self)
+            log2Sim = sum(self.mergedLgSim);
         end
         
-        function sim = FoCSim(self)
-            sim = 2^self.log2FoCSim();
+        function sim = partitionSim(self)
+            sim = 2^self.log2PartitionSim();
         end
         
-        function len = FoCSize(self)
+        function len = totalMFs(self)
             len = length(self.mergedIDXs);
         end
         
@@ -47,12 +45,12 @@ classdef INFGMN_FoC < handle
     methods
         
         function updateSystem(self, compMFs, weights, thereIsANewComponent)
-            components = INFGMN_FoC.calcAlphaSupport(compMFs, weights);
+            components = FuzzyPartition.calcAlphaSupport(compMFs, weights);
             minAfter = Inf;
             for i_merged = length(self.mergedIDXs)-1:-1:1
                 minAfter = min(minAfter, min(components.MF(self.mergedIDXs{i_merged+1}, self.I_MU)));
                 if minAfter <= max(components.MF(self.mergedIDXs{i_merged}, self.I_MU))
-                    self.renewFoC(components);
+                    self.refitPartition(components);
                     return;
                 end
             end
@@ -60,29 +58,29 @@ classdef INFGMN_FoC < handle
             for i_merged = 2:length(self.mergedIDXs)
                 maxBefore = max(maxBefore, max(components.MF(self.mergedIDXs{i_merged-1}, self.I_MU)));
                 if min(components.MF(self.mergedIDXs{i_merged}, self.I_MU)) <= maxBefore
-                    self.renewFoC(components);
+                    self.refitPartition(components);
                     return;
                 end
             end
             self.updateAllMergedMFs(components);
-            self.updateAllMergedLog2Sim(components);
+            self.updateAllmergedLgSim(components);
             self.Sage = self.aging();
             if thereIsANewComponent
-                if self.aging() < self.Sdeath
-                    self.renewFoC(components);
+                if self.aging() < self.sim2Refit
+                    self.refitPartition(components);
                     return;
                 end
                 self.fitNewComponent(components);
                 self.Sage = self.aging(); % double-aging
             end
-            if self.Sage < self.Sdeath
-                self.renewFoC(components);
+            if self.Sage < self.sim2Refit
+                self.refitPartition(components);
             end
-            self.bestSim = max(self.bestSim, self.FoCSim());
+            self.bestSim = max(self.bestSim, self.partitionSim());
         end
         
         function newSAge = aging(self)
-            newSAge = self.Sage * min(1, self.FoCSim() / self.bestSim);
+            newSAge = self.Sage * min(1, self.partitionSim() / self.bestSim);
         end
         
         function purge(self, idx)
@@ -105,23 +103,23 @@ classdef INFGMN_FoC < handle
         function fitNewComponent(self, components)
             newMF = components.MF(end, :);
             idxNewMF = size(components.MF, 1);
-            for i_merged = 1:self.FoCSize()+1 % para cada MF da feature
-                if i_merged <= self.FoCSize() && ...
+            for i_merged = 1:self.totalMFs()+1 % para cada MF da feature
+                if i_merged <= self.totalMFs() && ...
                         self.mergedMFs(i_merged, self.I_MU) < newMF(self.I_MU)% se estiver antes do MF
                     continue;
                 end
-                if i_merged <= self.FoCSize() && ...
+                if i_merged <= self.totalMFs() && ...
                         min(components.MF(self.mergedIDXs{i_merged}, self.I_MU)) <= newMF(self.I_MU)
                     idxNewMergedIDX = i_merged;
                     self.mergedIDXs{idxNewMergedIDX}(end+1,1) = idxNewMF;
                     self.updateIdxMergedMFs(components, idxNewMergedIDX);
-                    self.updateIdxMergedLog2Sim(components, idxNewMergedIDX);
+                    self.updateIdxmergedLgSim(components, idxNewMergedIDX);
                 elseif i_merged > 1 && ...
                         newMF(self.I_MU) <= max(components.MF(self.mergedIDXs{i_merged-1}, self.I_MU))
                     idxNewMergedIDX = i_merged-1;
                     self.mergedIDXs{idxNewMergedIDX}(end+1,1) = idxNewMF;
                     self.updateIdxMergedMFs(components, idxNewMergedIDX);
-                    self.updateIdxMergedLog2Sim(components, idxNewMergedIDX);
+                    self.updateIdxmergedLgSim(components, idxNewMergedIDX);
                 else % it is between
                     self.putNewMergedIDXAt({idxNewMF}, i_merged, components);
                     self.tryMergeMFs(components);
@@ -131,75 +129,75 @@ classdef INFGMN_FoC < handle
         end
         
         function tryMergeMFs(self, components)
-            if self.FoCSize() == 1
+            if self.totalMFs() == 1
                 return;
             end
             log2SimOnMerge = zeros(length(self.mergedIDXs)-1, 1);
             for ii = 1:length(log2SimOnMerge) % para cada par de componentes vizinhos
                 log2SimOnMerge(ii) = self.log2SimilarityOnMergeIdx([ii, ii+1], components);
             end
-            log2SimImprov = log2SimOnMerge - (self.mergedLog2Sim(1:end-1) + self.mergedLog2Sim(2:end));
+            log2SimImprov = log2SimOnMerge - (self.mergedLgSim(1:end-1) + self.mergedLgSim(2:end));
             [improv, idxMerged] = max(log2SimImprov);
             while ~isempty(log2SimImprov) && ...
-                    (   improv >= 0 || self.FoCSize() > self.maxFoCSize ...
-                    ||  self.log2FoCSim() + improv > self.log2Smerge )
+                    (   improv >= 0 || self.totalMFs() > self.maxMFs ...
+                    ||  self.log2PartitionSim() + improv > self.log2Smerge )
                 self.mergedIDXs{idxMerged} = [self.mergedIDXs{idxMerged}; self.mergedIDXs{idxMerged+1}];
                 self.popMergedPropsAt(idxMerged+1);
                 self.updateIdxMergedMFs(components, idxMerged);
-                self.mergedLog2Sim(idxMerged) = log2SimOnMerge(idxMerged);
+                self.mergedLgSim(idxMerged) = log2SimOnMerge(idxMerged);
                 log2SimOnMerge(idxMerged) = [];
                 log2SimImprov(idxMerged) = [];
                 if idxMerged > 1
                     log2SimOnMerge(idxMerged-1) = self.log2SimilarityOnMergeIdx([idxMerged-1, idxMerged], components);
                     log2SimImprov(idxMerged-1) = log2SimOnMerge(idxMerged-1) ...
-                        - (self.mergedLog2Sim(idxMerged-1) + self.mergedLog2Sim(idxMerged));
+                        - (self.mergedLgSim(idxMerged-1) + self.mergedLgSim(idxMerged));
                 end
                 if idxMerged < length(self.mergedIDXs)
                     log2SimOnMerge(idxMerged) = self.log2SimilarityOnMergeIdx([idxMerged, idxMerged+1], components);
                     log2SimImprov(idxMerged) = log2SimOnMerge(idxMerged) ...
-                        - (self.mergedLog2Sim(idxMerged) + self.mergedLog2Sim(idxMerged+1));
+                        - (self.mergedLgSim(idxMerged) + self.mergedLgSim(idxMerged+1));
                 end
                 [improv, idxMerged] = max(log2SimImprov);
             end
         end
         
-        function renewFoC(self, components)
+        function refitPartition(self, components)
             [~, sortedMu] = sort(components.MF(:, self.I_MU));
             self.mergedIDXs = num2cell(sortedMu);
             self.updateAllMergedMFs(components);
-            self.updateAllMergedLog2Sim(components);
+            self.updateAllmergedLgSim(components);
             self.tryMergeMFs(components);
             self.Sage = 1;
-            self.bestSim = self.FoCSim();
+            self.bestSim = self.partitionSim();
         end
         
         function putNewMergedIDXAt(self, newMergedIDX, idxNewMergedIDX, components)
             self.mergedIDXs = [ self.mergedIDXs(1:idxNewMergedIDX-1); ...
                 newMergedIDX;   self.mergedIDXs(idxNewMergedIDX:end) ];
             self.mergedMFs(idxNewMergedIDX+1:end+1, :) = self.mergedMFs(idxNewMergedIDX:end, :);
-            self.mergedLog2Sim(idxNewMergedIDX+1:end+1, :) = self.mergedLog2Sim(idxNewMergedIDX:end, :);
-            adjIdxNewMergedIDX = max(idxNewMergedIDX-1, 1):min(self.FoCSize(), idxNewMergedIDX+1);
+            self.mergedLgSim(idxNewMergedIDX+1:end+1, :) = self.mergedLgSim(idxNewMergedIDX:end, :);
+            adjIdxNewMergedIDX = max(idxNewMergedIDX-1, 1):min(self.totalMFs(), idxNewMergedIDX+1);
             self.updateIdxMergedMFs(components, adjIdxNewMergedIDX);
-            self.updateIdxMergedLog2Sim(components, adjIdxNewMergedIDX);
+            self.updateIdxmergedLgSim(components, adjIdxNewMergedIDX);
         end
         
         function popMergedPropsAt(self, idxMerged)
             self.mergedIDXs(idxMerged) = [];
-            self.mergedLog2Sim(idxMerged) = [];
+            self.mergedLgSim(idxMerged) = [];
             self.mergedMFs(idxMerged,:) = [];
         end
         
-        function updateAllMergedLog2Sim(self, components)
-            self.mergedLog2Sim = zeros(size(self.mergedMFs,1), 1);
-            self.updateIdxMergedLog2Sim(components, 1:size(self.mergedMFs,1));
+        function updateAllmergedLgSim(self, components)
+            self.mergedLgSim = zeros(size(self.mergedMFs,1), 1);
+            self.updateIdxmergedLgSim(components, 1:size(self.mergedMFs,1));
         end
         
-        function updateIdxMergedLog2Sim(self, components, idxMergeds)
+        function updateIdxmergedLgSim(self, components, idxMergeds)
             for idx = idxMergeds
                 sim = self.similarity( self.mergedMFs(idx,:), ...
                     components.MF(self.mergedIDXs{idx}, :) );
                 weight = components.weights(self.mergedIDXs{idx});
-                self.mergedLog2Sim(idx) = sum(weight .* log2(sim) ./ sim.^2);
+                self.mergedLgSim(idx) = sum(weight .* log2(sim) ./ sim.^2);
             end
         end
         
@@ -236,7 +234,7 @@ classdef INFGMN_FoC < handle
                 maxXroot = min( maxXroot, ...
                     min(components.MF(self.mergedIDXs{max(idxMergeds)+1}, self.I_MU)) );
             end
-            merged = INFGMN_FoC.mergeAlphaSupport( [ minXroot maxXroot ] );
+            merged = FuzzyPartition.mergeAlphaSupport( [ minXroot maxXroot ] );
             sim = self.similarity( merged, components.MF(idxs, :) );
             weight = components.weights(idxs);
             log2sim = sum(weight .* log2(sim) ./ sim.^2);
@@ -277,25 +275,25 @@ classdef INFGMN_FoC < handle
         function components = calcAlphaSupport(compMFs, weights)
             components.MF = compMFs;
             components.weights = weights(:);
-            aux = components.MF(:, INFGMN_FoC.I_SPD) * INFGMN_FoC.ALPHA_AUX;
+            aux = components.MF(:, FuzzyPartition.I_SPD) * FuzzyPartition.ALPHA_AUX;
             components.alphaSupport = [ ... 
-                ( components.MF(:, INFGMN_FoC.I_MU) - aux ), ...
-                ( components.MF(:, INFGMN_FoC.I_MU) + aux ) ];
+                ( components.MF(:, FuzzyPartition.I_MU) - aux ), ...
+                ( components.MF(:, FuzzyPartition.I_MU) + aux ) ];
         end
         
         function merged = mergeAlphaSupport(alphaSupports)
             minXroot = min(alphaSupports(:, 1));
             maxXroot = max(alphaSupports(:, 2));
             newMu = (minXroot + maxXroot) / 2;
-            newSigma = (maxXroot - newMu) / INFGMN_FoC.ALPHA_AUX;
+            newSigma = (maxXroot - newMu) / FuzzyPartition.ALPHA_AUX;
             newSigma = max(newSigma, 1e-7);
             merged = [newSigma, newMu];
         end
         
 %         function v = possibility(A, B)
 %             v = exp( ...
-%                 -( (A(INFGMN_FoC.I_MU)  - B(INFGMN_FoC.I_MU)) ...
-%                 /  (A(INFGMN_FoC.I_SPD) + B(INFGMN_FoC.I_SPD)) ...
+%                 -( (A(FuzzyPartition.I_MU)  - B(FuzzyPartition.I_MU)) ...
+%                 /  (A(FuzzyPartition.I_SPD) + B(FuzzyPartition.I_SPD)) ...
 %                 )^2 /2 );
 %         end
         
