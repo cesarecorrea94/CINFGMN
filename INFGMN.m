@@ -753,7 +753,7 @@ classdef INFGMN < handle
             numVars = length(self.varNames);
             mfsTemplate = ones(1, numVars);
             ruleList = ones(self.nc, numVars + 2);
-            for i = 1:self.nc  
+            for i = 1:self.nc
                 ruleList(i, :) = [(mfsTemplate .* i) self.priors(i) 1];
             end
             if self.doMerge
@@ -763,31 +763,19 @@ classdef INFGMN < handle
                         ruleList(self.FoCstruct.(varName).mergedIDXs{i_mf}, inp) = i_mf;
                     end
                 end
-% %                 ruleList(:, end-1) = self.priors;
-% %                 for fisvar={'Inputs', 'Outputs'}
-%                 for inp = 1:length(self.fis.Inputs)
-%                     [~,index] = sort(self.means(:, inputIndexes(inp)));
-% %                     MFParams = vertcat(self.fis.Inputs(inp).MembershipFunctions.Parameters);
-% %                     [~,index] = sortrows(MFParams(:,2));
-% %                     clear MFParams;
-%                     fsMap = 1:length(index);
-%                     for MFi = 1:(length(index)-1)
-%                         Amf = self.fis.Inputs(inp).MembershipFunctions(index(MFi  )).Parameters;
-%                         Bmf = self.fis.Inputs(inp).MembershipFunctions(index(MFi+1)).Parameters;
-%                         [sim, v] = self.similarity(Amf, Bmf);
-%                         if sim > (1/3)/(2-1/3)
-%                             fsMap(fsMap == index(MFi)) = index(MFi+1);
-%                             self.fis.Inputs(inp).MembershipFunctions(index(MFi+1)).Parameters ...
-%                                 = self.merge(Amf, Bmf);
-%                         elseif v > self.vmax
-%                             [ self.fis.Inputs(inp).MembershipFunctions(index(MFi  )).Parameters ...
-%                             , self.fis.Inputs(inp).MembershipFunctions(index(MFi+1)).Parameters ...
-%                             ] = self.separate(Amf, Bmf);
-%                         end
-%                     end
-%                     self.fis.Inputs(inp).MembershipFunctions(setdiff(1:length(index), fsMap)) = [];
-%                     ruleList(:, inp) = self.rankify(fsMap);
-%                 end
+                [premisses,~,idxs] = unique(ruleList(:, 1:length(self.fis.Inputs)), 'rows');
+                if size(premisses,1) < size(ruleList, 1)
+                    conclusions = zeros(size(premisses,1), size(ruleList,2)-size(premisses,2)-2);
+                    weights = zeros(size(premisses,1), 1);
+                    for j = 1:max(idxs)
+                        rows = (idxs == j);
+                        jths_conclusions = ruleList(rows, length(self.fis.Inputs)+1:end-2);
+                        jths_weights = ruleList(rows, end-1);
+                        weights(j) = sum(jths_weights);
+                        conclusions(j) = sum(bsxfun(@times, jths_weights, jths_conclusions), 1) / weights(j);
+                    end
+                    ruleList = [premisses conclusions weights ones(length(weights), 1)];
+                end
             end
             self.fis = addrule(self.fis, ruleList);
         end
