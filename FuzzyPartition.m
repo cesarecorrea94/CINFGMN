@@ -10,9 +10,9 @@ classdef FuzzyPartition < handle
     properties
         bestSim     (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(bestSim,1)} = 1;
         Sage        (1,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(Sage,1)} = 1;
-        sim2Refit   (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(sim2Refit,1)} = 0.9;
-        log2Smerge  (1,1) {mustBeReal, mustBeNonpositive} = log2(0.85);
-        maxMFs      (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 7;
+        sim2Refit   (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(sim2Refit,1)} = 0.75;
+        log2Smerge  (1,1) {mustBeReal, mustBeNonpositive} = log2(0.9);
+        maxMFs      (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 25;
         mergedIDXs  (:,1) cell = cell(0,1); % {mustBeInteger, mustBePositive};
         mergedLgSim (:,1) {mustBeReal, mustBeNonpositive} = zeros(0,1);
         mergedMFs   (:,2) {mustBeReal} = zeros(0,2);
@@ -20,7 +20,7 @@ classdef FuzzyPartition < handle
     
     methods
         
-        function self = FuzzyPartition(maxMFs, Smerge, sim2Refit, vmax, compMFs, weights)
+        function self = FuzzyPartition(maxMFs, Smerge, sim2Refit, compMFs, weights)
             self.maxMFs = maxMFs;
             self.log2Smerge = log2(Smerge)/Smerge^2;
             self.sim2Refit = sim2Refit;
