@@ -14,8 +14,8 @@ classdef INFGMN < handle
         ignoreCovariance = true;
         
         doMerge = false;
-        Smerge = 1;
-        sim2Refit = 1;
+        simMerge = 1;
+        simRefit = 1;
         maxMFs = 15;
         FPstruct;
         
@@ -111,6 +111,11 @@ classdef INFGMN < handle
             defaultNormalize = true;
             defaultRegValue = 0;
             
+            defaultDoMerge = false;
+            defaultSimMerge = 0.9;
+            defaultSimRefit = 0.75;
+            defaultMaxMFs = 25;
+                        
             checkPositiveInterval = @(x, pname) validateattributes(x, {'numeric'}, {'>=', 0,'<=',1, 'scalar'}, self.name, pname);
             checkSigma = @(x) validateattributes(x, {'numeric'}, {'nonempty', 'row', '>', 0}, self.name, '"sigma"');
             checkLogical = @(x, pname) validateattributes(x, {'logical'}, {'nonempty'}, self.name, pname);
@@ -128,7 +133,17 @@ classdef INFGMN < handle
             addOptional(parser, 'normalize', defaultNormalize, @(x) checkLogical(x, 'normalize'));
             addOptional(parser, 'FIS_Options', self.defaultFISOptions, checkFISOptions);
             
+            addOptional(parser,'doMerge', defaultDoMerge, @(x) checkLogical(x, 'doMerge'));
+            addOptional(parser,'simMerge', defaultSimMerge, @(x) checkPositiveInterval(x, 'simMerge'));
+            addOptional(parser,'simRefit', defaultSimRefit, @(x) checkPositiveInterval(x, 'simRefit'));
+            addOptional(parser,'maxMFs', defaultMaxMFs, @(x) checkPositiveNumScalar(x, 'maxMFs'));
+
             parse(parser, varargin{:});
+            
+            self.doMerge = parser.Results.doMerge;
+            self.simMerge = parser.Results.simMerge;
+            self.simRefit = parser.Results.simRefit;
+            self.maxMFs = parser.Results.maxMFs;
             
             self.normalize = parser.Results.normalize;
             self.sigma = parser.Results.sigma;
@@ -267,7 +282,7 @@ classdef INFGMN < handle
             for i_vn = 1:length(self.varNames) % para cada feature
                 compMFs = [ squeeze(self.covs(i_vn, i_vn, :)) .^ self.spread, self.means(:, i_vn) ];
                 self.FPstruct.(self.varNames{i_vn}) = FuzzyPartition( ...
-                    self.maxMFs, self.Smerge, self.sim2Refit, compMFs, self.priors );
+                    self.maxMFs, self.simMerge, self.simRefit, compMFs, self.priors );
             end
         end
         
@@ -534,8 +549,8 @@ classdef INFGMN < handle
         
         %% Accessor methods.
         function ms = modelSize(self)
-            %ms = size(self.fis.rule, 2);
-            ms = self.nc;
+            ms = size(self.fis.Rules, 2);
+            %ms = self.nc;
         end
         
         function covs = modelCovariances(self)
@@ -574,10 +589,10 @@ classdef INFGMN < handle
             end
         end
         
-        function setMergeStats(self, doMerge, newSmerge, newSim2Refit, newMaxMFs)
+        function setMergeStats(self, doMerge, newSimMerge, newSimRefit, newMaxMFs)
             self.doMerge = doMerge;
-            self.Smerge = newSmerge;
-            self.sim2Refit = newSim2Refit;
+            self.simMerge = newSimMerge;
+            self.simRefit = newSimRefit;
             self.maxMFs = newMaxMFs;
             if self.doMerge
                 self.refitFP();
@@ -699,19 +714,9 @@ classdef INFGMN < handle
                         o = outputIndexes(i);
                         CAngular = -invcovj(inputIndexes, o) / invcovj(o, o);
                         CLinear = muj(o) - muj(inputIndexes) * CAngular;
-                        params = [CAngular' CLinear];
-                        if self.doMerge
-                            funcstr = num2str(CLinear);
-                            for asd = 1:length(CAngular)
-                                funcstr = [funcstr ' ' num2str(CAngular(asd), '%+.5g') ...
-                                    '*' self.varNames{inputIndexes(asd)} ];
-                            end
-                            self.fis = addmf(self.fis, 'output', i, ...
-                                ['MF' num2str(j) ' ' funcstr], self.outMfType, params);
-                        else
-                            self.fis = addmf(self.fis, 'output', i, ...
-                                ['MF' num2str(j)], self.outMfType, params);
-                        end
+                        mfName = ['MF' num2str(j) ' ' ...
+                            self.getEquationText(CLinear, CAngular, inputIndexes)];
+                        self.addOutputFunction(i, CLinear, CAngular, mfName);
                     end
                 end
             end
@@ -735,14 +740,21 @@ classdef INFGMN < handle
                 if size(premisses,1) < size(ruleList, 1)
                     conclusions = zeros(size(premisses,1), size(ruleList,2)-size(premisses,2)-2);
                     weights = zeros(size(premisses,1), 1);
-                    for j = 1:max(idxs)
-                        rows = (idxs == j);
+                    for jj = 1:max(idxs)
+                        rows = (idxs == jj);
                         jths_conclusions = ruleList(rows, length(self.fis.Inputs)+1:end-2);
                         jths_weights = ruleList(rows, end-1);
-                        weights(j) = sum(jths_weights);
-                        conclusions(j) = sum(bsxfun(@times, jths_weights, jths_conclusions), 1) / weights(j);
+                        weights(jj) = sum(jths_weights);
+                        conclusions(jj) = find(rows, 1, 'first');
+                        
+                        oldParams = vertcat(self.fis.Outputs.MembershipFunctions(jths_conclusions).Parameters);
+                        newParams = sum(bsxfun(@times, jths_weights, oldParams), 1) / weights(jj);
+                        self.fis.Outputs.MembershipFunctions(conclusions(jj)).Parameters = newParams;
+                        self.fis.Outputs.MembershipFunctions(conclusions(jj)).Name = ...
+                            ['MF' num2str(conclusions(jj)) ' ' ...
+                            self.getEquationText(newParams(end), newParams(1:end-1), inputIndexes)];
                     end
-                    ruleList = [premisses conclusions weights ones(length(weights), 1)];
+                    ruleList = [premisses conclusions weights ones(size(weights))];
                 end
             end
             self.fis = addrule(self.fis, ruleList);
@@ -770,6 +782,19 @@ classdef INFGMN < handle
                 params = mf2mf(params, defaultMfType, mfType);
             end
         end 
+        
+        function addOutputFunction(self, index, CLinear, CAngular, mfName)
+            params = [CAngular' CLinear];
+            self.fis = addmf(self.fis, 'output', index, mfName, self.outMfType, params);
+        end
+        
+        function eqnTxt = getEquationText(self, CLinear, CAngular, inputIndexes)
+            eqnTxt = num2str(CLinear);
+            for i_coef = 1:length(CAngular)
+                eqnTxt = [eqnTxt ' ' num2str(CAngular(i_coef), '%+.5g') ...
+                    '*' self.varNames{inputIndexes(i_coef)} ];
+            end
+        end
         
         function dilMeans = dilatedMeansForVar(self, varIndex)
             dilMeans = self.means(:, varIndex);
