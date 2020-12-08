@@ -13,10 +13,10 @@ classdef INFGMN < handle
         regValue;
         ignoreCovariance = true;
         
-        doMerge = false;
-        simMerge = 1;
-        simRefit = 1;
-        maxMFs = 15;
+        doMerge;
+        simMerge;
+        simRefit;
+        maxMFs;
         FPstruct;
         
         sps = [];
@@ -230,7 +230,7 @@ classdef INFGMN < handle
         end
         
          %% Train the INFGMN with the data set X
-        function [self, NCs] = train(self, X)
+        function self = train(self, X)
             
             validateattributes(X, {'dataset'}, {'nonempty', 'ncols', size(self.ranges, 2)}, strcat(self.name, ':train'),'"X"');
             X = double(X);
@@ -244,7 +244,6 @@ classdef INFGMN < handle
             end
             
             N = size(X,1);
-            NCs = zeros(1, N); %debug%
             for i = 1:N
                 didCreate = false;
                 x = X(i,:);
@@ -260,15 +259,10 @@ classdef INFGMN < handle
                 if self.doMerge
                     self.updateFisVar(didCreate);
                 end
-                NCs(i) = self.modelSize(); %debug%
-                if self.modelSize() >= 50
-                    error('INFGMN:Abortar', 'Too many components.');
-                end
             end
             
             % Force fuzzy layer update.
             self.needsFisUpdate = true;
-%             disp(self.nc);
         end
         
         function updateFisVar(self, thereIsANewComponent)
@@ -318,8 +312,6 @@ classdef INFGMN < handle
                         error('Ill Conditioned Covariance.');
                     end
                     xRinv = Xcentered / L;
-                    % xRinv = Xcentered * pinv(L);
-                    % xRinv = lsqminnorm(L', Xcentered')';
                     logSqrtDetCov(j) = sum(log(diag(L)));
                 end
 
@@ -550,7 +542,6 @@ classdef INFGMN < handle
         %% Accessor methods.
         function ms = modelSize(self)
             ms = size(self.fis.Rules, 2);
-            %ms = self.nc;
         end
         
         function covs = modelCovariances(self)
@@ -574,7 +565,6 @@ classdef INFGMN < handle
         end
         
         function fis = toFIS(self)
-%             self.updateFuzzyLayer();
             fis = self.fis;
         end
         
@@ -625,7 +615,6 @@ classdef INFGMN < handle
     methods (Access = private)
         
         function updateFuzzyLayer(self, inputIndexes, outputIndexes)
-%             self.needsFisUpdate = true;
             self.needsFisUpdate = self.needsFisUpdate || ...
                 isempty(self.fis.output) || ...
                 ~isempty(setdiff([self.fis.output(:).name], self.varNames(outputIndexes))) || ...
@@ -633,7 +622,7 @@ classdef INFGMN < handle
             if (self.needsFisUpdate)
                 self.cleanFis();
                 self.createFuzzyVariables(inputIndexes, outputIndexes);
-                self.createRules(inputIndexes, outputIndexes);
+                self.createRules(inputIndexes);
             end
             self.needsFisUpdate = false;
         end
@@ -641,7 +630,6 @@ classdef INFGMN < handle
         function createFuzzyVariables(self, inputIndexes, outputIndexes)
             for i = 1:length(inputIndexes)
                 range = self.ranges(:, inputIndexes(i));
-%                 mus = self.dilatedMeansForVar(inputIndexes(i)); 
                 varName = self.varNames{inputIndexes(i)};
                 if  self.doMerge
                     till = size(self.FPstruct.(varName).mergedMFs, 1);
@@ -685,7 +673,6 @@ classdef INFGMN < handle
             end
             if strcmp(self.fis.type, 'mamdani')
                 for i = 1:length(outputIndexes)
-%                     mus = self.dilatedMeansForVar(outputIndexes(i));
                     mus = self.means(:, outputIndexes(i));
                     spreads = self.jdiag(self.covs(outputIndexes(i),outputIndexes(i),:)) .^ self.spread;
                     for j = 1:self.nc
@@ -722,7 +709,7 @@ classdef INFGMN < handle
             end
         end
         
-        function createRules(self, inputIndexes, outputIndexes)
+        function createRules(self, inputIndexes)
             numVars = length(self.varNames);
             mfsTemplate = ones(1, numVars);
             ruleList = ones(self.nc, numVars + 2);
@@ -794,60 +781,6 @@ classdef INFGMN < handle
                 eqnTxt = [eqnTxt ' ' num2str(CAngular(i_coef), '%+.5g') ...
                     '*' self.varNames{inputIndexes(i_coef)} ];
             end
-        end
-        
-        function dilMeans = dilatedMeansForVar(self, varIndex)
-            dilMeans = self.means(:, varIndex);
-            if self.nc > 1
-                dil = self.dill(varIndex);
-                [sorted, indexes] = sort(dilMeans, 'ascend'); 
-                dilMeans(indexes(end)) = sorted(end) + dil;
-                dilMeans(indexes(1)) = sorted(1) - dil;
-    
-            end
-        end
-        
-        function dump(self)
-            cvs = self.modelSpreads();
-            numCols = size(self.means, 2);            
-            disp('================================================');
-            disp('rules:')
-            fprintf('%7s\n', num2str(self.nc));
-            disp('------------------------------------------------');
-            disp('means:');
-            fprintf('%s', sprintf([repmat('%16.8f', 1, numCols) '\n'], self.means'));
-            disp('------------------------------------------------');
-            disp('covs:');
-            fprintf('%s', sprintf([repmat('%16.8f', 1, numCols) '\n'], cvs'));
-            disp('------------------------------------------------');
-            disp('st:');
-            fprintf('%s', sprintf([repmat('%16.8f', 1, numCols) '\n'], self.st));
-            if (mod(length(self.st), 3) ~= 0); disp(' '); end
-            disp('------------------------------------------------');
-            disp('sp:');
-            fprintf('%s', sprintf([repmat('%16.8f', 1, numCols) '\n'], self.sp));
-            if (mod(length(self.sp), 3) ~= 0); disp(' '); end
-            disp('------------------------------------------------');
-            disp('sps:');
-            fprintf('%s', sprintf([repmat('%16.8f', 1, numCols) '\n'], self.sps));
-            if mod(length(self.sps), 3) ~= 0; disp(' '); end
-            disp('------------------------------------------------');
-            disp('mahalaD:');
-            fprintf('%s', sprintf([repmat('%16.8f', 1, numCols) '\n'], self.mahalaD));
-            if mod(length(self.mahalaD), 3) ~= 0; disp(' '); end
-            disp('------------------------------------------------');
-            disp('loglike:');
-            fprintf('%s', sprintf([repmat('%16.8f', 1, numCols) '\n'], self.loglike));
-            if mod(length(self.loglike), 3) ~= 0; disp(' '); end
-            disp('------------------------------------------------');
-            disp('priors:');
-            fprintf('%s', sprintf([repmat('%16.8f', 1, numCols) '\n'], self.priors));
-            if mod(length(self.priors), 3) ~= 0; disp(' '); end
-            disp('------------------------------------------------');
-            disp('post:');
-            fprintf('%s', sprintf([repmat('%16.8f', 1, numCols) '\n'], self.post));
-            if mod(length(self.post), 3) ~= 0; disp(' '); end
-            disp('================================================');
         end
         
     end

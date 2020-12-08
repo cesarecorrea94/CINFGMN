@@ -9,7 +9,7 @@ classdef FuzzyPartition < handle
     
     properties
         age         (1,1) {mustBeReal, mustBeInteger, mustBeNonnegative} = 0;
-        sim2Refit   (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(sim2Refit,1)} = 0.7^(1/0.7^2);
+        simRefit    (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(simRefit,1)} = 0.7^(1/0.7^2);
         log2Smerge  (1,1) {mustBeReal, mustBeNonpositive} = log2(0.8)/0.8^2;
         maxMFs      (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 25;
         mergedIDXs  (:,1) cell = cell(0,1); % {mustBeInteger, mustBePositive};
@@ -33,17 +33,17 @@ classdef FuzzyPartition < handle
         
         function bool = time2Refit(self, NC)
             bool = self.age > 5*(log2(NC)+1) ...
-                || self.partitionSim() < self.sim2Refit;
+                || self.partitionSim() < self.simRefit;
         end
         
     end
     
     methods
         
-        function self = FuzzyPartition(maxMFs, Smerge, sim2Refit, compMFs, weights)
+        function self = FuzzyPartition(maxMFs, simMerge, simRefit, compMFs, weights)
             self.maxMFs = maxMFs;
-            self.log2Smerge = log2(Smerge)/Smerge^2;
-            self.sim2Refit = sim2Refit^(1/sim2Refit^2);
+            self.log2Smerge = log2(simMerge)/simMerge^2;
+            self.simRefit = simRefit^(1/simRefit^2);
             components = self.calcAlphaSupport(compMFs, weights);
             self.refitPartition(components);
         end
