@@ -8,25 +8,16 @@ classdef FuzzyPartition < handle
     end
     
     properties
-        bestSim     (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(bestSim,1)} = 1;
-        Sage        (1,1) {mustBeReal, mustBeNonnegative, mustBeLessThanOrEqual(Sage,1)} = 1;
-        sim2Refit   (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(sim2Refit,1)} = 0.75;
-        log2Smerge  (1,1) {mustBeReal, mustBeNonpositive} = log2(0.9);
+        age         (1,1) {mustBeReal, mustBeInteger, mustBeNonnegative} = 0;
+        sim2Refit   (1,1) {mustBeReal, mustBePositive, mustBeLessThanOrEqual(sim2Refit,1)} = 0.7^(1/0.7^2);
+        log2Smerge  (1,1) {mustBeReal, mustBeNonpositive} = log2(0.8)/0.8^2;
         maxMFs      (1,1) {mustBeReal, mustBeInteger, mustBePositive} = 25;
         mergedIDXs  (:,1) cell = cell(0,1); % {mustBeInteger, mustBePositive};
         mergedLgSim (:,1) {mustBeReal, mustBeNonpositive} = zeros(0,1);
         mergedMFs   (:,2) {mustBeReal} = zeros(0,2);
     end
     
-    methods
-        
-        function self = FuzzyPartition(maxMFs, Smerge, sim2Refit, compMFs, weights)
-            self.maxMFs = maxMFs;
-            self.log2Smerge = log2(Smerge)/Smerge^2;
-            self.sim2Refit = sim2Refit;
-            components = self.calcAlphaSupport(compMFs, weights);
-            self.refitPartition(components);
-        end
+    methods(Access = private)
         
         function log2Sim = log2PartitionSim(self)
             log2Sim = sum(self.mergedLgSim);
@@ -40,9 +31,22 @@ classdef FuzzyPartition < handle
             len = length(self.mergedIDXs);
         end
         
+        function bool = time2Refit(self, NC)
+            bool = self.age > 5*(log2(NC)+1) ...
+                || self.partitionSim() < self.sim2Refit;
+        end
+        
     end
     
     methods
+        
+        function self = FuzzyPartition(maxMFs, Smerge, sim2Refit, compMFs, weights)
+            self.maxMFs = maxMFs;
+            self.log2Smerge = log2(Smerge)/Smerge^2;
+            self.sim2Refit = sim2Refit^(1/sim2Refit^2);
+            components = self.calcAlphaSupport(compMFs, weights);
+            self.refitPartition(components);
+        end
         
         function updateSystem(self, compMFs, weights, thereIsANewComponent)
             components = FuzzyPartition.calcAlphaSupport(compMFs, weights);
@@ -64,23 +68,18 @@ classdef FuzzyPartition < handle
             end
             self.updateAllMergedMFs(components);
             self.updateAllmergedLgSim(components);
-            self.Sage = self.aging();
+            self.age = self.age +1;
             if thereIsANewComponent
-                if self.aging() < self.sim2Refit
+                self.age = self.age +1; % double-aging
+                if self.time2Refit(length(components.weights))
                     self.refitPartition(components);
                     return;
                 end
                 self.fitNewComponent(components);
-                self.Sage = self.aging(); % double-aging
             end
-            if self.Sage < self.sim2Refit
+            if self.time2Refit(length(components.weights))
                 self.refitPartition(components);
             end
-            self.bestSim = max(self.bestSim, self.partitionSim());
-        end
-        
-        function newSAge = aging(self)
-            newSAge = self.Sage * min(1, self.partitionSim() / self.bestSim);
         end
         
         function purge(self, idx)
@@ -167,8 +166,7 @@ classdef FuzzyPartition < handle
             self.updateAllMergedMFs(components);
             self.updateAllmergedLgSim(components);
             self.tryMergeMFs(components);
-            self.Sage = 1;
-            self.bestSim = self.partitionSim();
+            self.age = 0;
         end
         
         function putNewMergedIDXAt(self, newMergedIDX, idxNewMergedIDX, components)
