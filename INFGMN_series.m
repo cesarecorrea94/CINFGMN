@@ -64,7 +64,8 @@ classdef INFGMN_series < handle
         end
         
         function obj = create(obj, DS, warmup, batchsize, ...
-                save_stats, fis_types, save_fis, Smerge, maxFoCSize, ...
+                save_stats, fis_types, save_fis, ...
+                doMerge, Smerge, Sdeath, maxFoCSize, ...
                 normalize, paramstruct, offset)
             self.DS = DS;
             self.warmup = warmup;
@@ -72,7 +73,9 @@ classdef INFGMN_series < handle
             self.fis_types = fis_types;
             self.save_stats = save_stats;
             self.save_fis = save_fis;
+            self.doMerge = doMerge;
             self.Smerge = Smerge;
+            self.Sdeath = Sdeath;
             self.maxFoCSize = maxFoCSize;
             self.normalize = normalize;
             self.offset = struct2table(offset);

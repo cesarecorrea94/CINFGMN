@@ -10,10 +10,15 @@ warning off;
 % dumpname = 'dumps/DynNLSys/23-Jun-2020 00:25:26.subviaveis.batch1_merge_maxMF11.mat';
 % dumpname = 'dumps/DynNLSys/23-Jun-2020 00:25:26.subviaveis.batch1_merge_maxMF10.mat';
 %%
-dumpname = 'dumps/DynNLSys/final_merge.mat';
-dumpname = 'dumps/DynNLSys/final_dont.mat';
-% fodase(dumpname);
-% function fodase(dumpname)
+%dumpname = 'dumps/DynNLSys/final_merge.mat';
+%dumpname = 'dumps/DynNLSys/final_dont.mat';
+%dumpname = 'dumps/DynNLSys/final_merge_vFINAL.mat';
+%dumpseries = INFGMN_series(dumpname);
+%self = dumpseries.myself;
+%getINFGMNParam(self);
+% % fodase(dumpname);
+% % function fodase(dumpname)
+%%
 
 if ~exist('dumpseries', 'var')
     if exist('dumpname', 'var')
@@ -25,10 +30,10 @@ if ~exist('dumpseries', 'var')
             'log2tmax',     0,    ... tempo para assimilar instâncias
             'log2maxNC',    0.25);  %%% número máximo de componentes estáveis (não espúrias)
         paramstruct = struct( ...
-            'log2delta',   -(offset.log2delta : offset.log2delta : 10), ... log2(0.03162)
-            'log2tau',     -(offset.log2tau   : offset.log2tau   : 20), ... log2(0.003981)
-            'log2tmax',     log2(100),    ...
-            'log2maxNC',    (5 :offset.log2maxNC: 10)                    ... log2(55)
+            'log2delta',   -5.25,...-(offset.log2delta : offset.log2delta : 10), ... log2(0.03162)
+            'log2tau',     -13.75,...-(offset.log2tau   : offset.log2tau   : 20), ... log2(0.003981)
+            'log2tmax',    6.643856189774724,... log2(100),    ...
+            'log2maxNC',   8.5 ... (5 :offset.log2maxNC: 10)                    ... log2(55)
         );
         normalize = true; % default
         comb = ...
@@ -40,20 +45,24 @@ if ~exist('dumpseries', 'var')
 
         DS = dynamic_nonlinear_system();
         warmup = 0;
-        batchsize = 20;%[500, 5, 2, 1];
+        batchsize = 1;...20;%[500, 5, 2, 1];
         fis_types = {'sugeno'};%{'mamdani', 'sugeno'};
         save_stats = true;
-        save_fis = 200:200:3000;
-        maxFoCSize = 1;%7;%11;
-        Smerge = 1;%0.7;
+        save_fis = [400 1400 2400]; ...200:200:3000;
+        doMerge = true;
+        maxFoCSize = 9;...1;%7;%11;
+        Smerge = 0.8;...1;%0.7;
+        Sdeath = 0.7;...0.75;
         
         dumpseries = INFGMN_series('DynNLSys');
         dumpseries.create(DS, warmup, batchsize, ...
-            save_stats, fis_types, save_fis, Smerge, maxFoCSize, ...
+            save_stats, fis_types, save_fis, doMerge, Smerge, Sdeath, maxFoCSize, ...
             normalize, paramstruct, offset);
     end
 end
 
+dumpseries.update(@INFGMN_series.step);
+error('Stopped');
 try
 %     self = dumpseries.myself();
 %     if  all(isnan([self.dumps.sugeno_RMSE]))

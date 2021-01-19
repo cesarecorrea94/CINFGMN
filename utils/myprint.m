@@ -40,8 +40,9 @@ function myprintstep(subfolder, dump)
         ax1.Position = position;
         xticks(0:200:3000);
         NCs = [dump.stats.NCs];
+        yticks(0:5:ceil(max(NCs)/10)*10);
         plot(NCs, 'k-', 'LineWidth', 1);
-        plot([1000 1000 nan 2000 2000], [0 ceil(max(NCs)/5)*5 nan 0 ceil(max(NCs)/5)*5],  'r-', 'LineWidth', 1);
+        plot([1000 1000 nan 2000 2000], [0 ceil(max(NCs)/10)*10 nan 0 ceil(max(NCs)/10)*10],  'r-', 'LineWidth', 1);
         plotlabels(ax1, 'Instância de Tempo t', 'Número de regras');
         saveas(fig, [subfolder '/NCs'], 'png');
         %% RMSE

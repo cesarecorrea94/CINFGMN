@@ -1,13 +1,19 @@
 warning off;
-dumpname = 'dumps/concreto/29-Jun-2020 both.mat';
+%dumpname = 'dumps/concreto/29-Jun-2020 both.mat';
 %%
+%dumpname = 'dumps/concreto/07-Dec-2020.merge-test.mat';
+%dumpseries = INFGMN_series(dumpname);
+%self = dumpseries.myself;
+%getINFGMNParam(self);
+%%
+
 if ~exist('dumpseries', 'var')
     if exist('dumpname', 'var')
         dumpseries = INFGMN_series(dumpname);
     else
         DS = concrete_DS();
         fis_types = {'sugeno'};%{'mamdani', 'sugeno'};
-        save_fis = false;
+        save_fis = true;
         doMerge = true;
         maxFoCSize = 5;
         normalize = true;%default
@@ -19,10 +25,10 @@ if ~exist('dumpseries', 'var')
             'log2tmax', 0, ...0.5,    ... tempo para assimilar instâncias
             'log2maxNC', 0); ...0.5);  %%% número máximo de componentes estáveis (não espúrias)
         paramstruct = struct( ...
-            'log2delta',   -(offset.log2delta   :offset.log2delta:  5), ...
-            'log2tau',     -(offset.log2tau     :offset.log2tau:    25), ...
-            'log2tmax',     [log2(halfTrain),  99], ...(offset.log2tmax +  5   :offset.log2tmax:   9   -offset.log2tmax), ...
-            'log2maxNC',     log2(halfTrain)-1.5    ...(offset.log2maxNC+  5   :offset.log2maxNC:  9   -offset.log2maxNC) ...
+            'log2delta',   -0.75,...-(offset.log2delta   :offset.log2delta:  5), ...
+            'log2tau',     -7.25,...-(offset.log2tau     :offset.log2tau:    25), ...
+            'log2tmax',    8.27146302790438,... [log2(halfTrain),  99], ...(offset.log2tmax +  5   :offset.log2tmax:   9   -offset.log2tmax), ...
+            'log2maxNC',   6.77146302790438 ...  log2(halfTrain)-1.5    ...(offset.log2maxNC+  5   :offset.log2maxNC:  9   -offset.log2maxNC) ...
         );
         comb = ...
             length(paramstruct.log2delta) * ...

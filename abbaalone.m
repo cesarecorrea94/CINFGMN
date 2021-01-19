@@ -1,13 +1,19 @@
 warning off;
-dumpname = 'dumps/abbaalone/29-Jun-2020 both.mat';
+%dumpname = 'dumps/abbaalone/29-Jun-2020 both.mat';
 %%
+%dumpname = 'dumps/abbaalone/07-Dec-2020.merge-test.mat';
+%dumpseries = INFGMN_series(dumpname);
+%self = dumpseries.myself;
+%getINFGMNParam(self);
+%%
+
 if ~exist('dumpseries', 'var')
     if exist('dumpname', 'var')
         dumpseries = INFGMN_series(dumpname);
     else
         DS = abalone_DS();
         fis_types = {'sugeno'};%{'mamdani', 'sugeno'};
-        save_fis = false;
+        save_fis = true;
         doMerge = true;
         maxFoCSize = 5;
         normalize = true;%default
@@ -19,10 +25,10 @@ if ~exist('dumpseries', 'var')
             'log2tmax', 0, ...1,    ... tempo para assimilar instâncias
             'log2maxNC', 0); ...1);  %%% número máximo de componentes estáveis (não espúrias)
         paramstruct = struct( ...
-            'log2delta',   -(offset.log2delta   :offset.log2delta:  5), ...
-            'log2tau',     -(offset.log2tau     :offset.log2tau:    25), ...
-            'log2tmax',     [log2(halfTrain),  99], ...(offset.log2tmax +  3   :offset.log2tmax:   9   -offset.log2tmax), ...
-            'log2maxNC',     log2(halfTrain)-2.5    ...(offset.log2maxNC+  3   :offset.log2maxNC:  9   -offset.log2maxNC) ...
+            'log2delta',   -1.875,...-(offset.log2delta   :offset.log2delta:  5), ...
+            'log2tau',     -21.5,...-(offset.log2tau     :offset.log2tau:    25), ...
+            'log2tmax',    10.2912858339966,... [log2(halfTrain),  99], ...(offset.log2tmax +  3   :offset.log2tmax:   9   -offset.log2tmax), ...
+            'log2maxNC',   7.79128583399659...  log2(halfTrain)-2.5    ...(offset.log2maxNC+  3   :offset.log2maxNC:  9   -offset.log2maxNC) ...
         );
         comb = ...
             length(paramstruct.log2delta) * ...

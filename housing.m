@@ -1,13 +1,19 @@
 warning off;
-dumpname = 'dumps/housing/29-Jun-2020 both.mat';
+%dumpname = 'dumps/housing/29-Jun-2020 both.mat';
 %%
+%dumpname = 'dumps/housing/07-Dec-2020.merge-test.mat';
+%dumpseries = INFGMN_series(dumpname);
+%self = dumpseries.myself;
+%getINFGMNParam(self);
+%%
+
 if ~exist('dumpseries', 'var')
     if exist('dumpname', 'var')
         dumpseries = INFGMN_series(dumpname);
     else
         DS = housing_DS();
         fis_types = {'sugeno'};%{'mamdani', 'sugeno'};
-        save_fis = false;
+        save_fis = true;
         doMerge = true;
         maxFoCSize = 7;
         normalize = true; % default
@@ -19,10 +25,10 @@ if ~exist('dumpseries', 'var')
             'log2tmax', 0, ...0.5,    ... tempo para assimilar instâncias
             'log2maxNC', 0); ...0.5);  %%% número máximo de componentes estáveis (não espúrias)
         paramstruct = struct( ...
-            'log2delta',   -(offset.log2delta   :offset.log2delta:  5), ...
-            'log2tau',     -(offset.log2tau     :offset.log2tau:    25), ...
-            'log2tmax',     [log2(halfTrain),  99], ...(log2(32)   :offset.log2tmax:   log2(128)), ...
-            'log2maxNC',     log2(halfTrain)-1      ...(log2(16)   :offset.log2maxNC:  log2(64)) ...
+            'log2delta',   -1.125,...-(offset.log2delta   :offset.log2delta:  5), ...
+            'log2tau',     -12.25,...-(offset.log2tau     :offset.log2tau:    25), ...
+            'log2tmax',    99,... [log2(halfTrain),  99], ...(log2(32)   :offset.log2tmax:   log2(128)), ...
+            'log2maxNC',   98 ...  log2(halfTrain)-1      ...(log2(16)   :offset.log2maxNC:  log2(64)) ...
         );
         comb = ...
             length(paramstruct.log2delta) * ...
