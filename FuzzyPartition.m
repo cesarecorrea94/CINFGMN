@@ -206,33 +206,37 @@ classdef FuzzyPartition < handle
         
         function updateIdxMergedMFs(self, components, idxMergeds)
             for idx = idxMergeds
+                minMu = min(components.MF(self.mergedIDXs{idx}, self.I_MU));
                 minXroot = min(components.alphaSupport( self.mergedIDXs{idx}, 1 ));
                 if idx > 1
                     minXroot = max( minXroot, ...
                         max(components.MF(self.mergedIDXs{idx-1}, self.I_MU)) );
                 end
+                maxMu = max(components.MF(self.mergedIDXs{idx}, self.I_MU));
                 maxXroot = max(components.alphaSupport( self.mergedIDXs{idx}, 2 ));
                 if idx < length(self.mergedIDXs)
                     maxXroot = min( maxXroot, ...
                         min(components.MF(self.mergedIDXs{idx+1}, self.I_MU)) );
                 end
-                self.mergedMFs(idx, :) = self.mergeAlphaSupport( [ minXroot maxXroot ] );
+                self.mergedMFs(idx, :) = self.mergeAlphaSupport( [ minXroot maxXroot ], minMu, maxMu );
             end
         end
         
         function [log2sim, merged] = log2SimilarityOnMergeIdx(self, idxMergeds, components)
             idxs = vertcat(self.mergedIDXs{idxMergeds});
+            minMu = min(components.MF( idxs, self.I_MU));
             minXroot = min(components.alphaSupport( idxs, 1 ));
             if min(idxMergeds) > 1
                 minXroot = max( minXroot, ...
                     max(components.MF(self.mergedIDXs{min(idxMergeds)-1}, self.I_MU)) );
             end
+            maxMu = max(components.MF( idxs, self.I_MU));
             maxXroot = max(components.alphaSupport( idxs, 2 ));
             if max(idxMergeds) < length(self.mergedIDXs)
                 maxXroot = min( maxXroot, ...
                     min(components.MF(self.mergedIDXs{max(idxMergeds)+1}, self.I_MU)) );
             end
-            merged = FuzzyPartition.mergeAlphaSupport( [ minXroot maxXroot ] );
+            merged = FuzzyPartition.mergeAlphaSupport( [ minXroot maxXroot ], minMu, maxMu );
             sim = self.similarity( merged, components.MF(idxs, :) );
             weight = components.weights(idxs);
             log2sim = sum(weight .* log2(sim) ./ sim.^2);
@@ -272,11 +276,13 @@ classdef FuzzyPartition < handle
                 ( components.MF(:, FuzzyPartition.I_MU) + aux ) ];
         end
         
-        function merged = mergeAlphaSupport(alphaSupports)
+        function merged = mergeAlphaSupport(alphaSupports, minMu, maxMu)
             minXroot = min(alphaSupports(:, 1));
             maxXroot = max(alphaSupports(:, 2));
             newMu = (minXroot + maxXroot) / 2;
-            newSigma = (maxXroot - newMu) / FuzzyPartition.ALPHA_AUX;
+            newMu = max(min(newMu, maxMu), minMu);
+            intervalo = min((maxXroot - newMu), (newMu - minXroot));
+            newSigma = intervalo / FuzzyPartition.ALPHA_AUX;
             newSigma = max(newSigma, 1e-7);
             merged = [newSigma, newMu];
         end
