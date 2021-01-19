@@ -230,7 +230,7 @@ classdef INFGMN < handle
         end
         
          %% Train the INFGMN with the data set X
-        function self = train(self, X)
+        function [self, NCs] = train(self, X)
             
             validateattributes(X, {'dataset'}, {'nonempty', 'ncols', size(self.ranges, 2)}, strcat(self.name, ':train'),'"X"');
             X = double(X);
@@ -244,6 +244,7 @@ classdef INFGMN < handle
             end
             
             N = size(X,1);
+            NCs = zeros(1, N); %debug%
             for i = 1:N
                 didCreate = false;
                 x = X(i,:);
@@ -259,6 +260,7 @@ classdef INFGMN < handle
                 if self.doMerge
                     self.updateFisVar(didCreate);
                 end
+                NCs(i) = self.modelSize(); %debug%
             end
             
             % Force fuzzy layer update.
